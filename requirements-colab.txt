@@ -1,0 +1,9 @@
+# Colab-only extras. Colab already ships CUDA-enabled torch/torchvision plus
+# numpy, scipy, scikit-learn and matplotlib -- DO NOT reinstall those here or
+# you risk replacing the GPU build of torch with a CPU wheel. Install only the
+# packages Colab lacks.
+POT>=0.9.0
+scikit-image
+# single-cell is optional (heavy); installed best-effort by the notebook.
+scanpy
+anndata
