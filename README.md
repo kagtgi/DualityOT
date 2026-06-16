@@ -30,9 +30,6 @@ extras (so Colab's CUDA build of `torch` is preserved), and the rest runs every
 experiment and writes results. A full run is ≈30–60 min on an A100; set
 `FAST = True` in the config cell for a ~3-minute smoke test.
 
-> **This repo is private.** The clone cell will prompt for a GitHub token
-> (paste one with `repo` scope), or set `os.environ["GITHUB_TOKEN"]` beforehand.
-
 When it finishes, all results are in **`results/`** and packaged into
 **`ot_duality_results.zip`**, which downloads automatically:
 
