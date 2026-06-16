@@ -20,9 +20,8 @@ kernel `exp(−M/reg)` would underflow.
 
 ## Run it on Google Colab (A100), from a clean clone
 
-1. Open **`run_all.ipynb`** in Colab
-   ([github.com/kagtgi/DualityOT](https://github.com/kagtgi/DualityOT) → open in
-   Colab, or upload the notebook).
+1. Open **`run_all.ipynb`** in Colab (upload it, or open it from
+   [github.com/kagtgi/DualityOT](https://github.com/kagtgi/DualityOT)).
 2. **Runtime ▸ Change runtime type ▸ A100 GPU** (any GPU works; A100 is fastest; CPU also works).
 3. **Runtime ▸ Run all.**
 
@@ -30,6 +29,9 @@ The first cell `git clone`s this repo, the second installs only the Colab-missin
 extras (so Colab's CUDA build of `torch` is preserved), and the rest runs every
 experiment and writes results. A full run is ≈30–60 min on an A100; set
 `FAST = True` in the config cell for a ~3-minute smoke test.
+
+> **This repo is private.** The clone cell will prompt for a GitHub token
+> (paste one with `repo` scope), or set `os.environ["GITHUB_TOKEN"]` beforehand.
 
 When it finishes, all results are in **`results/`** and packaged into
 **`ot_duality_results.zip`**, which downloads automatically:
