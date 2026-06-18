@@ -62,6 +62,60 @@ def _grad(net, y):
     return g
 
 
+def _certify_neural(f, g, Xt, Yt, dev, m=400, seed=0):
+    """Lemma 1 in practice: from the trained (uncertified) neural potentials,
+    produce a VALID certified lower bound on the discrete OT* and the violation
+    margin eps_viol. Done on an m x m subsample (numpy) so the cost is bounded.
+
+    For ANY potential vectors u=f(Xs), v=g(Ys): the pair (u-eps_viol, v) with
+    eps_viol = max_{i,j}(u_i+v_j-c_ij)_+ is dual-feasible, so
+        L_flat = mean(u)+mean(v)-eps_viol  <=  OT*_disc   (Lemma 1).
+    The c-transform of v, phi_i = min_j(c_ij - v_j), is the tightest feasible
+    completion of v and gives L_ct >= L_flat (also valid). A feasible coupling
+    from the Brenier map (nearest target + marginal rounding) gives U >= OT*_disc.
+    Returns the certified bracket so neural OT becomes two-sided up to a margin.
+    """
+    try:
+        import numpy as _np
+        import otkit as _K
+        from scipy.spatial import cKDTree
+        import ot as _ot
+        n = min(Xt.shape[0], Yt.shape[0]); m = int(min(m, n))
+        gsel = _np.random.default_rng(seed)
+        ix = gsel.choice(Xt.shape[0], m, replace=False)
+        iy = gsel.choice(Yt.shape[0], m, replace=False)
+        Xs = Xt[ix]; Ys = Yt[iy]
+        with torch.no_grad():
+            u = f(Xs).detach().cpu().numpy().astype(float).ravel()
+            v = g(Ys).detach().cpu().numpy().astype(float).ravel()
+        Xsr = Xs.detach().requires_grad_(True)
+        Tx = torch.autograd.grad(f(Xsr).sum(), Xsr)[0].detach().cpu().numpy()
+        Xs_np = Xs.detach().cpu().numpy(); Ys_np = Ys.detach().cpu().numpy()
+        M = _K.cost_matrix(Xs_np, Ys_np)                       # m x m, ||.||^2
+        a = _np.ones(m) / m; b = _np.ones(m) / m
+        # violation margin of the raw pair, and the Lemma's flat-corrected bound
+        eps_viol = float(_np.maximum(u[:, None] + v[None, :] - M, 0.0).max())
+        L_flat = float(a @ u + b @ v - eps_viol)
+        # tighter: c-transform of v (feasible by construction)
+        phi_ct = (M - v[None, :]).min(axis=1)
+        L_ct = float(a @ phi_ct + b @ v)
+        # feasible coupling from the Brenier map: nearest target + marginal round
+        _, idx = cKDTree(Ys_np).query(Tx, k=1)
+        P = _np.zeros((m, m))
+        for i, j in enumerate(idx):
+            P[i, int(j)] += 1.0 / m
+        P = _K.round_to_marginals(P, a, b)
+        U = float(_np.sum(P * M))
+        otstar = float(_ot.emd2(a, b, M))
+        L = max(L_ct, L_flat)                                   # both valid; report tightest
+        return dict(eps_viol=eps_viol, neural_L_flat=L_flat, neural_L=L,
+                    neural_U=U, neural_G=float(U - L),
+                    neural_relgap=float((U - L) / max(U, 1e-12)),
+                    neural_otstar_sub=otstar, cert_m=m)
+    except Exception as e:
+        return dict(neural_cert_error=str(e)[:120])
+
+
 def neural_w2(X, Y, W2_ref=None, width=128, depth=2, iters=4000, k_inner=10,
               lr=1e-3, use_gpu=True, seed=0):
     """Train the two-ICNN maximin and return an UNCERTIFIED W2^2 estimate.
@@ -127,9 +181,16 @@ def neural_w2(X, Y, W2_ref=None, width=128, depth=2, iters=4000, k_inner=10,
         converged = bool(np.isfinite(est) and est > 0)
         if W2_ref is not None and W2_ref > 0:
             converged = converged and (0.5 <= est / W2_ref <= 6.0)
-        return dict(est=float(est), est_dual=float(est_dual), U_map=float(U_map),
-                    time=float(dt), mem_mb=float(mem_mb), converged=converged,
-                    iters=int(iters), device=dev)
+
+        # --- Lemma 1 (neural feasibility margin): turn the UNCERTIFIED neural
+        # potentials into a CERTIFIED lower bound on the discrete OT*. ---
+        cert = _certify_neural(f, g, Xt, Yt, dev)
+
+        out = dict(est=float(est), est_dual=float(est_dual), U_map=float(U_map),
+                   time=float(dt), mem_mb=float(mem_mb), converged=converged,
+                   iters=int(iters), device=dev)
+        out.update(cert)
+        return out
     except Exception as e:
         try:
             import torch as _t; _t.cuda.empty_cache()

@@ -189,6 +189,38 @@ def minibatch_ub_xy(X, Y, m=256, seed=7, max_batches=64):
     return float(np.mean(vals))
 
 
+# ============================ alternative fidelity proxies (baselines) ======
+def sinkhorn_divergence(X, Y, eps_rel=0.05, numItermax=2000, stopThr=1e-7):
+    """Debiased Sinkhorn divergence S_eps = OT_eps(mu,nu) - 1/2 OT_eps(mu,mu)
+    - 1/2 OT_eps(nu,nu) (Genevay et al., 2018; Feydy et al., 2019). A popular
+    *point* fidelity proxy -- used here only as a baseline to contrast with the
+    certified two-sided gap (it is not a bound on OT*)."""
+    X = np.asarray(X, float); Y = np.asarray(Y, float)
+    nx, ny = X.shape[0], Y.shape[0]
+    a = np.ones(nx) / nx; b = np.ones(ny) / ny
+    Mxy = ot.dist(X, Y, metric="sqeuclidean")
+    reg = eps_rel * float(Mxy.max())
+    Mxx = ot.dist(X, X, metric="sqeuclidean")
+    Myy = ot.dist(Y, Y, metric="sqeuclidean")
+    kw = dict(method=SINKHORN_METHOD, numItermax=numItermax, stopThr=stopThr)
+    sxy = float(ot.sinkhorn2(a, b, Mxy, reg, **kw))
+    sxx = float(ot.sinkhorn2(a, a, Mxx, reg, **kw))
+    syy = float(ot.sinkhorn2(b, b, Myy, reg, **kw))
+    return sxy - 0.5 * sxx - 0.5 * syy
+
+
+def spearman(x, y):
+    """Spearman rank correlation (no SciPy dependency): Pearson on ranks."""
+    x = np.asarray(x, float); y = np.asarray(y, float)
+    if len(x) < 2 or np.allclose(x, x[0]) or np.allclose(y, y[0]):
+        return float("nan")
+    rx = np.argsort(np.argsort(x)).astype(float)
+    ry = np.argsort(np.argsort(y)).astype(float)
+    rx -= rx.mean(); ry -= ry.mean()
+    denom = np.sqrt((rx ** 2).sum() * (ry ** 2).sum())
+    return float((rx * ry).sum() / denom) if denom > 0 else float("nan")
+
+
 # ============================ memory / OOM stress test ============================
 def _gpu_total_gb():
     if _HAS_CUDA:

@@ -326,6 +326,85 @@ def fig_singlecell_transport(real, outdir):
     fig.tight_layout(pad=0.3); _save(fig, outdir, "fig_singlecell_transport")
 
 
+def fig_aniso_deficit(synth, outdir):
+    """Theorem 1 / E5: sliced deficit vs covariance condition number at fixed d.
+    The anisotropic deficit stays high and above the (1-1/d)*rho lower bound; the
+    common-covariance case sits exactly on 1-1/d, independent of conditioning."""
+    an = synth.get("aniso")
+    if not an or not an.get("rows"): return
+    r = an["rows"]; d = an.get("d", "?")
+    cond = np.array([x["cond"] for x in r]); dfc = np.array([x["deficit"] for x in r])
+    dfs = np.array([x.get("deficit_std", 0.0) for x in r])
+    comm = np.array([x["deficit_common"] for x in r]); lb = np.array([x["lower_bound"] for x in r])
+    omid = r[0]["one_minus_inv_d"]
+    fig, ax = plt.subplots(figsize=(3.5, 2.8))
+    ax.axhline(omid, color=GREY5, ls=":", lw=1.1, label=r"$1-1/d$")
+    if np.any(dfs > 0): ax.fill_between(cond, dfc - dfs, dfc + dfs, color=C_SLICE, alpha=0.18, lw=0)
+    ax.plot(cond, dfc, "^-", color=C_SLICE, mfc=C_SLICE, mec=C_SLICE, ms=5.4, lw=1.4,
+            label=r"anisotropic ($\Sigma_0\!\neq\!\Sigma_1$)")
+    ax.plot(cond, comm, "s--", color=C_LOWR, mfc="white", mec=C_LOWR, mew=1.3, ms=5, lw=1.2,
+            label=r"common $\Sigma$ (Thm 1(i))")
+    ax.plot(cond, lb, "o:", color=C_GAPTX, mfc="white", mec=C_GAPTX, mew=1.2, ms=4.4, lw=1.1,
+            label=r"lower bound $(1\!-\!1/d)\rho$ (Thm 1(ii))")
+    ax.set_xscale("log"); ax.set_ylim(-0.03, 1.05)
+    ax.set_xlabel(r"covariance condition number $\kappa$", color=GREY9, fontproperties=FP_REG)
+    ax.set_ylabel("sliced relative deficit", color=GREY9, fontproperties=FP_REG)
+    ax.set_title(f"Anisotropic deficit ($d={d}$)", color=GREY9, fontproperties=FP_MED, fontsize=9)
+    _leg(ax, loc="lower right", handlelength=1.6, fontsize=6.0); style_ax(ax)
+    fig.tight_layout(pad=0.4); _save(fig, outdir, "fig_aniso_deficit")
+
+
+def fig_gap_selection(synth, real, outdir):
+    """(a) Only the certified gap upper-bounds the two-sided error (proxy validity);
+    (b) gap-selected eps matches the oracle and beats unsupervised heuristics."""
+    px = synth.get("proxy"); dec = (real or {}).get("decision", {})
+    fig, axes = plt.subplots(1, 2, figsize=(7.0, 2.8))
+    # --- panel (a): proxy validity scatter ---
+    ax = axes[0]
+    if px and px.get("rows"):
+        rows = px["rows"]
+        ce = np.array([r["cert_error"] for r in rows])
+        style = {"gap": (C_GAP, "D", "certified gap"), "primal": (C_LOWR, "s", "primal-only"),
+                 "dual": (C_SLICE, "^", "dual-only"), "sinkdiv": (C_MINI, "o", "Sinkhorn div.")}
+        lim = max(ce.max(), max(np.max([r[k] for r in rows]) for k in style)) * 1.1
+        ax.plot([1e-3, lim], [1e-3, lim], "-", color=GREY7, lw=0.9, zorder=1)
+        for k, (c, mk_, lab) in style.items():
+            ax.scatter(ce, [r[k] for r in rows], s=22, c=c, marker=mk_, edgecolor="none",
+                       alpha=0.8, label=lab, zorder=3)
+        ax.set_xscale("log"); ax.set_yscale("log")
+        ax.set_xlabel(r"two-sided error $\max(U\!-\!\mathrm{OT}^\star,\mathrm{OT}^\star\!-\!L)/\mathrm{OT}^\star$",
+                      color=GREY9, fontproperties=FP_REG, fontsize=7.2)
+        ax.set_ylabel("proxy value", color=GREY9, fontproperties=FP_REG)
+        ax.set_title("(a) only the gap bounds the error", color=GREY9, fontproperties=FP_MED, fontsize=8.5)
+        _leg(ax, loc="lower right", handlelength=1.3, fontsize=6.0); style_ax(ax)
+        vb = px.get("valid_bound_fraction", {})
+        ax.text(0.04, 0.95, "valid-bound rate:\n" +
+                "  ".join(f"{k} {100*vb.get(k,0):.0f}%" for k in ["gap", "primal", "dual"]),
+                transform=ax.transAxes, va="top", fontsize=5.6, color=GREY7, fontproperties=FP_REG)
+    # --- panel (b): decision usefulness grouped bars ---
+    ax = axes[1]
+    order = ["gap_tol", "gap_knee", "obj_elbow", "sinkdiv", "fixed", "oracle_best"]
+    pretty = {"gap_tol": "gap-tol", "gap_knee": "gap-knee", "obj_elbow": "obj-elbow",
+              "sinkdiv": "sinkdiv", "fixed": r"fixed $\varepsilon$", "oracle_best": "oracle"}
+    names = [n for n in ["mnist_usps", "single_cell"] if n in dec]
+    if names:
+        x = np.arange(len(order)); w = 0.8 / max(len(names), 1)
+        cols = {"mnist_usps": C_SINK, "single_cell": C_LOWR}
+        for j, nm in enumerate(names):
+            picks = dec[nm]["picks"]
+            ys = [picks.get(r, {}).get("acc", np.nan) for r in order]
+            bars = ax.bar(x + j * w, ys, w, color=cols.get(nm, GREY5),
+                          label=PRETTY.get(nm, nm), edgecolor="white", linewidth=0.6)
+            # mark our gap rules
+        ax.set_xticks(x + w * (len(names) - 1) / 2)
+        ax.set_xticklabels([pretty[r] for r in order], rotation=30, ha="right", fontsize=6.4)
+        ax.set_ylabel("transfer accuracy", color=GREY9, fontproperties=FP_REG)
+        ax.set_title("(b) gap-selected $\\varepsilon$ vs heuristics", color=GREY9,
+                     fontproperties=FP_MED, fontsize=8.5)
+        _leg(ax, loc="lower left", handlelength=1.2, fontsize=6.2); style_ax(ax)
+    fig.tight_layout(pad=0.5); _save(fig, outdir, "fig_gap_selection")
+
+
 # =================================================== REAL-DATA FIGURES
 PRETTY = {"single_cell": "single-cell (PBMC)", "mnist_usps": "MNIST vs USPS", "color": "color transfer"}
 
@@ -461,9 +540,12 @@ def generate_all(synth, real, outdir, font_dir="."):
     try: fig_composed_schematic(outdir); made.append("fig_composed_schematic")
     except Exception as e: print("fig_composed_schematic failed:", e)
     for fn, nm in [(fig2_frontier, "fig2_frontier"), (fig3_diagnostics, "fig3_diagnostics"),
-                   (fig4_hybrid, "fig4_hybrid"), (fig_memory_scaling, "fig_memory_scaling")]:
+                   (fig4_hybrid, "fig4_hybrid"), (fig_memory_scaling, "fig_memory_scaling"),
+                   (fig_aniso_deficit, "fig_aniso_deficit")]:
         try: fn(synth, outdir); made.append(nm)
         except Exception as e: print(nm, "failed:", e)
+    try: fig_gap_selection(synth, real, outdir); made.append("fig_gap_selection")
+    except Exception as e: print("fig_gap_selection failed:", e)
     for fn, nm in [(real_frontier, "real_frontier"), (real_dimension, "real_dimension"),
                    (real_gap_accuracy, "real_gap_accuracy"), (color_transfer, "color_transfer"),
                    (fig_singlecell_transport, "fig_singlecell_transport")]:

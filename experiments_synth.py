@@ -219,6 +219,85 @@ def _memory_stress(use_gpu=True, fast=False):
     return K.memory_stress_test(use_gpu=use_gpu)  # full dual-precision defaults
 
 
+def _aniso_deficit(d=16, n=3000, n_seeds=5, fast=False):
+    """E5 / Theorem 1: validate the sliced deficit beyond isotropic shift Gaussians.
+    Sweep the covariance condition number kappa at fixed dimension d, holding the
+    shift fixed, and compare the measured deficit to the Theorem-1 lower bound
+    (1-1/d)*rho (rho = shift fraction) and to the exact common-covariance value
+    1-1/d. Averaged over seeds."""
+    if fast: d, n, n_seeds = 8, 1500, 2
+    conds = [1.0, 2.0, 5.0, 20.0, 100.0] if fast else [1.0, 2.0, 5.0, 10.0, 50.0, 200.0]
+    rows = []
+    for kappa in conds:
+        defs, comm, rhos = [], [], []
+        for s in range(n_seeds):
+            g = np.random.default_rng(700 + int(kappa) * 13 + s)
+            m0 = g.standard_normal(d); m1 = m0 + 2.0          # fixed shift magnitude
+            C0 = K.random_spd(d, 700 + s, cond=kappa)
+            C1 = K.random_spd(d, 800 + s, cond=kappa)
+            X = g.multivariate_normal(m0, C0, size=n)
+            Y = g.multivariate_normal(m1, C1, size=n)
+            a = np.ones(n) / n
+            M = ot.dist(X, Y, metric="sqeuclidean")
+            w2d = float(ot.emd2(a, a, M)); del M
+            sw2 = K.sliced_lb(X, Y, n_proj=500)
+            w2c = K.bures_w2sq(m0, C0, m1, C1)
+            defs.append((w2d - sw2) / w2d)
+            rhos.append(float(np.sum((m0 - m1) ** 2)) / max(w2c, 1e-12))
+            # exact common-covariance reference: same C0 for both -> deficit = 1-1/d
+            Yc = g.multivariate_normal(m1, C0, size=n)
+            Mc = ot.dist(X, Yc, metric="sqeuclidean")
+            w2dc = float(ot.emd2(a, a, Mc)); del Mc
+            sw2c = K.sliced_lb(X, Yc, n_proj=500)
+            comm.append((w2dc - sw2c) / w2dc)
+        dm, ds = _mean_std(defs); cm, cs = _mean_std(comm); rho = float(np.mean(rhos))
+        rows.append(dict(cond=kappa, deficit=dm, deficit_std=ds,
+                         deficit_common=cm, deficit_common_std=cs,
+                         rho=rho, lower_bound=(1.0 - 1.0 / d) * rho,
+                         one_minus_inv_d=1.0 - 1.0 / d, n_seeds=n_seeds))
+    return dict(rows=rows, d=d, n=n)
+
+
+def _proxy_study(d=5, n=2000, n_seeds=3, use_gpu=True, fast=False):
+    """E3: on synthetic ground truth, contrast the certified gap with alternative
+    fidelity proxies (primal-only, dual-only, Sinkhorn divergence, entropic
+    objective). Records, per eps, each proxy and the TRUE relative error, plus
+    which proxies are valid error bounds and each proxy's rank-correlation with
+    the true error. Shows the gap is the only certified two-sided proxy."""
+    if fast: n, n_seeds = 1200, 2
+    eps_list = [0.3, 0.2, 0.1, 0.05, 0.03, 0.02, 0.01, 0.005] if not fast else [0.2, 0.05, 0.01]
+    proxies = ["gap", "primal", "dual", "sinkdiv"]
+    rows = []
+    pooled = {k: [] for k in proxies + ["cert_error", "true_err"]}
+    for s in range(n_seeds):
+        pr = K.sample_gaussian_problem(d=d, n=n, seed=321 + s)
+        X, Y = pr["X"], pr["Y"]; a = np.ones(n) / n; b = np.ones(n) / n
+        M = ot.dist(X, Y, metric="sqeuclidean")
+        w2d = float(ot.emd2(a, b, M, numItermax=500000))
+        for er in eps_list:
+            est, U, L, _ = K.sinkhorn_gap(M, a, b, er, use_gpu=use_gpu)
+            sdiv = K.sinkhorn_divergence(X, Y, eps_rel=er)
+            cert_error = max(U - w2d, w2d - L) / w2d   # two-sided error to certify
+            rec = dict(eps=er, seed=s,
+                       gap=(U - L) / w2d,               # certified two-sided bound
+                       primal=(U - w2d) / w2d,          # primal-only (one-sided)
+                       dual=(w2d - L) / w2d,            # dual-only (one-sided)
+                       sinkdiv=sdiv / w2d,              # Sinkhorn divergence (point proxy)
+                       cert_error=cert_error,
+                       true_err=abs(est - w2d) / w2d)
+            rows.append(rec)
+            for k in pooled:
+                pooled[k].append(rec[k])
+        del M
+    # (i) does each proxy UPPER-BOUND the two-sided certification error? (validity)
+    valid = {k: float(np.mean([1.0 if pooled[k][i] + 1e-9 >= pooled["cert_error"][i] else 0.0
+                               for i in range(len(pooled[k]))])) for k in proxies}
+    # (ii) does each proxy correlate with the true error? (everything does)
+    corr = {k: K.spearman(pooled[k], pooled["true_err"]) for k in proxies}
+    return dict(rows=rows, spearman=corr, valid_bound_fraction=valid,
+                d=d, n=n, n_seeds=n_seeds)
+
+
 def run_synth(log=print, fast=False, use_gpu=True, n_seeds=5):
     if fast: n_seeds = 2
     OUT = {}
@@ -243,4 +322,15 @@ def run_synth(log=print, fast=False, use_gpu=True, n_seeds=5):
     log(f"   OOM walls: float64 n={oom.get('float64')}, float32 n={oom.get('float32')}; "
         f"GPU={ms.get('gpu_total_gb')} GB; one-sided reached "
         f"n={ms['light'][-1].get('n') if ms.get('light') else 'NA'}")
+    log(f"[synth H] anisotropic deficit vs condition number (Theorem 1, {n_seeds} seeds)...")
+    OUT["aniso"] = _aniso_deficit(n_seeds=n_seeds, fast=fast)
+    log("   deficit vs cond: " + ", ".join(
+        f"k{r['cond']:.0f}:{r['deficit']:.2f}" for r in OUT["aniso"]["rows"]))
+    log("[synth I] proxy study: certified gap vs alternative fidelity proxies...")
+    OUT["proxy"] = _proxy_study(use_gpu=use_gpu, fast=fast)
+    sp = OUT["proxy"]["spearman"]; vb = OUT["proxy"]["valid_bound_fraction"]
+    log(f"   Spearman(proxy,true_err): gap={sp['gap']:.2f} primal={sp['primal']:.2f} "
+        f"dual={sp['dual']:.2f} sinkdiv={sp['sinkdiv']:.2f}")
+    log(f"   valid-bound fraction: gap={vb['gap']:.2f} primal={vb['primal']:.2f} "
+        f"dual={vb['dual']:.2f} sinkdiv={vb['sinkdiv']:.2f}")
     return OUT

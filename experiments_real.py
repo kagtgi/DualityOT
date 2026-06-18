@@ -82,6 +82,68 @@ def da_gap_vs_accuracy_multiseed(Xs, ys, Xt, yt, N=2000, seeds=(0, 1, 2, 3, 4),
     return dict(OTstar=float(np.mean(otstar)), rows=rows, n_seeds=len(seeds))
 
 
+def _knee_index(xlog, y):
+    """Hyperparameter-free knee/elbow (Kneedle-style): index of the point on the
+    (normalized) curve farthest from the chord joining its endpoints. Used to
+    pick an operating point from a monotone-ish proxy curve without labels."""
+    x = np.asarray(xlog, float); y = np.asarray(y, float)
+    if len(x) < 3:
+        return len(x) - 1
+    xn = (x - x.min()) / max(np.ptp(x), 1e-12)
+    yn = (y - y.min()) / max(np.ptp(y), 1e-12)
+    # distance from the chord (xn[0],yn[0])->(xn[-1],yn[-1])
+    dx, dy = xn[-1] - xn[0], yn[-1] - yn[0]
+    den = np.hypot(dx, dy) + 1e-12
+    dist = np.abs(dy * (xn - xn[0]) - dx * (yn - yn[0])) / den
+    return int(np.argmax(dist))
+
+
+def decision_study(Xs, ys, Xt, yt, N=1200, seed=0, use_gpu=True,
+                   eps_list=(0.5, 0.2, 0.1, 0.05, 0.02, 0.01, 0.005), tau=0.3, log=print):
+    """E2 (decision usefulness): does the LABEL-FREE certified gap select a better
+    entropic eps than common unsupervised heuristics? Sweep eps once, recording the
+    transfer accuracy (labels used for EVALUATION only) and several label-free
+    proxies, then compare the eps each selection rule picks:
+      - gap-tol (ours): coarsest eps whose certified relgap <= tau (fall back to knee)
+      - gap-knee (ours): knee of relgap vs log-eps
+      - fixed:    eps=0.05 (common default)
+      - obj-elbow: knee of the entropic objective vs log-eps
+      - sinkdiv:  argmin Sinkhorn divergence
+    Reports each rule's chosen eps and the resulting accuracy, plus the oracle best.
+    """
+    g = np.random.default_rng(seed)
+    si = g.choice(len(Xs), min(N, len(Xs)), replace=False)
+    ti = g.choice(len(Xt), min(N, len(Xt)), replace=False)
+    Xs, ys = Xs[si], ys[si]; Xt, yt = Xt[ti], yt[ti]
+    ns, nt = len(Xs), len(Xt)
+    a = np.ones(ns) / ns; b = np.ones(nt) / nt
+    M = ot.dist(Xs, Xt, metric="sqeuclidean")
+    OTstar = otkit.exact_ot(M, a, b)
+    rows = []
+    for er in eps_list:
+        est, U, L, _, Ps = otkit.sinkhorn_gap(M, a, b, er, use_gpu=use_gpu,
+                                              numItermax=50000, stopThr=1e-9, return_plan=True)
+        acc = _label_transfer_acc(Ps, ys, yt)
+        sdiv = otkit.sinkhorn_divergence(Xs, Xt, eps_rel=er)
+        rows.append(dict(eps=er, relgap=(U - L) / OTstar, entobj=est, sinkdiv=sdiv, acc=acc))
+    xlog = np.log([r["eps"] for r in rows])
+    relgap = np.array([r["relgap"] for r in rows]); accs = np.array([r["acc"] for r in rows])
+    epss = np.array([r["eps"] for r in rows])
+    # selection rules -> index into the sweep
+    below = np.where(relgap <= tau)[0]
+    i_tol = int(below[np.argmax(epss[below])]) if len(below) else _knee_index(xlog, relgap)
+    sel = {
+        "gap_tol":   i_tol,
+        "gap_knee":  _knee_index(xlog, relgap),
+        "fixed":     int(np.argmin(np.abs(epss - 0.05))),
+        "obj_elbow": _knee_index(xlog, np.array([r["entobj"] for r in rows])),
+        "sinkdiv":   int(np.argmin([r["sinkdiv"] for r in rows])),
+    }
+    picks = {rule: dict(eps=float(epss[i]), acc=float(accs[i])) for rule, i in sel.items()}
+    picks["oracle_best"] = dict(eps=float(epss[int(np.argmax(accs))]), acc=float(accs.max()))
+    return dict(rows=rows, picks=picks, tau=tau, OTstar=OTstar, ns=ns, nt=nt)
+
+
 def run_real(log=print, fast=False, use_gpu=True, n_seeds=5):
     out = {"gpu": otkit.gpu_info(), "datasets": {}}
     Nfr  = 600  if fast else 2000   # frontier sample size (strengthened 1500->2000)
@@ -168,6 +230,7 @@ def run_real(log=print, fast=False, use_gpu=True, n_seeds=5):
         out["scaling_meta"] = "sklearn digits (fallback)"
 
     seeds = tuple(range(n_seeds))
+    da = sc_da = None
     # ---- gap predicts downstream accuracy (MNIST -> USPS), averaged over seeds ----
     log(f"\n=== REAL DOWNSTREAM: gap vs label-transfer accuracy (MNIST->USPS, {n_seeds} seeds) ===")
     try:
@@ -191,5 +254,43 @@ def run_real(log=print, fast=False, use_gpu=True, n_seeds=5):
         out["sc_da_accuracy"]["classes"] = sc_da.get("classes")
     except Exception as e:
         log(f"  [single-cell da skip] {e}")
+
+    # ---- E2: decision usefulness (gap-selected eps vs unsupervised heuristics) ----
+    log("\n=== REAL DECISION USEFULNESS: gap-selected eps vs heuristics ===")
+    out["decision"] = {}
+    for nm, dd in [("mnist_usps", da), ("single_cell", sc_da)]:
+        if dd is None:
+            continue
+        try:
+            ds = decision_study(dd["Xs"], dd["ys"], dd["Xt"], dd["yt"],
+                                N=min(Nfr, 1200), use_gpu=use_gpu, log=log)
+            out["decision"][nm] = ds
+            p = ds["picks"]
+            log(f"  [{nm}] acc: gap-tol={p['gap_tol']['acc']:.3f} gap-knee={p['gap_knee']['acc']:.3f} "
+                f"fixed={p['fixed']['acc']:.3f} obj-elbow={p['obj_elbow']['acc']:.3f} "
+                f"sinkdiv={p['sinkdiv']['acc']:.3f} | oracle={p['oracle_best']['acc']:.3f}")
+        except Exception as e:
+            log(f"  [decision {nm} skip] {e}")
+
+    # ---- E1: negative results (where the gap is necessary but not sufficient) ----
+    # Quantify over-sharpening: the smallest-gap operating point is NOT the best
+    # downstream point (entropic over-sharpening), so a small gap is necessary but
+    # not sufficient for task quality.
+    out["negative"] = {}
+    for nm in ("da_accuracy", "sc_da_accuracy"):
+        res = out.get(nm)
+        if not res:
+            continue
+        srows = [r for r in res["rows"] if r["method"] == "sinkhorn"]
+        if not srows:
+            continue
+        accs = [r["acc"] for r in srows]; gaps = [r["relgap"] for r in srows]
+        i_peak = int(np.argmax(accs)); i_min_gap = int(np.argmin(gaps))
+        out["negative"][nm] = dict(
+            acc_at_min_gap=float(accs[i_min_gap]), gap_at_min_gap=float(gaps[i_min_gap]),
+            acc_peak=float(accs[i_peak]), gap_at_peak=float(gaps[i_peak]),
+            oversharpen_drop=float(accs[i_peak] - accs[i_min_gap]))
+        log(f"  [{nm}] over-sharpening: peak acc={accs[i_peak]:.3f} at relgap={gaps[i_peak]:.2f}; "
+            f"smallest-gap acc={accs[i_min_gap]:.3f} (drop {accs[i_peak]-accs[i_min_gap]:+.3f})")
 
     return out
