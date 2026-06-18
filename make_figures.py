@@ -94,69 +94,111 @@ from matplotlib.patches import FancyArrowPatch, FancyBboxPatch
 
 
 def fig1_teaser(outdir):
-    # Compact single-column version: tighter coordinate range, slightly smaller
-    # fonts. The saved PDF is designed to be included as a single-column \figure
-    # in the AAAI template (width ~3.33 in).
-    fig, ax = plt.subplots(figsize=(3.5, 2.9))
-    ax.set_xlim(0.2, 10.5); ax.set_ylim(0.55, 3.05); ax.axis("off")
-    y0 = 1.62; L, S, U = 2.6, 5.35, 7.75
-    ax.add_patch(FancyBboxPatch((L, y0 - 0.2), U - L, 0.4,
-                                boxstyle="round,pad=0,rounding_size=0.08",
-                                fc=SURF_AMBER, ec="none", zorder=0))
-    ax.annotate("", xy=(9.95, y0), xytext=(0.4, y0),
-                arrowprops=dict(arrowstyle="-|>", color=GREY7, lw=1.0))
-    ax.text(10.0, y0, "cost", va="center", ha="left", fontsize=7, color=GREY7,
-            fontproperties=FP_REG)
-    for x, m, c, lab, sub in [
-        (L, "^", C_SLICE,  "$L$",               "dual lower bound"),
-        (S, "*", C_EXACT,  r"$\mathrm{OT}^\star$", "true optimum"),
-        (U, "s", C_LOWR,   "$U$",               "primal upper bound"),
+    # Single-column concept figure (AAAI ~3.33 in wide). A clean number-line:
+    # OT* sits between a dual lower bound L and a primal upper bound U; relaxation
+    # pushes L up, restriction pushes U down, and the amber span is the gap.
+    fig, ax = plt.subplots(figsize=(3.4, 2.55))
+    ax.set_xlim(0, 10); ax.set_ylim(0, 10); ax.axis("off")
+    axis_y = 4.5
+    Lx, Sx, Ux = 2.45, 5.0, 7.55
+
+    # title (two centered lines)
+    ax.text(5.0, 9.7, "Every approximate-OT family controls one\n"
+            "side of the Kantorovich duality gap",
+            ha="center", va="top", fontsize=8.8, color=GREY9,
+            fontproperties=FP_MED, linespacing=1.35)
+
+    # soft amber gap band between L and U
+    ax.add_patch(FancyBboxPatch((Lx, axis_y - 0.55), Ux - Lx, 1.1,
+                 boxstyle="round,pad=0,rounding_size=0.14",
+                 fc=SURF_AMBER, ec="none", zorder=0))
+
+    # transport-cost axis
+    ax.annotate("", xy=(9.35, axis_y), xytext=(0.65, axis_y),
+                arrowprops=dict(arrowstyle="-|>", color=GREY7, lw=1.1))
+    ax.text(9.5, axis_y, "transport\ncost", va="center", ha="left",
+            fontsize=6.0, color=GREY7, fontproperties=FP_REG, linespacing=1.1)
+
+    # inward push arrows (above the axis)
+    ar_y = axis_y + 1.05
+    ax.add_patch(FancyArrowPatch((Lx - 0.75, ar_y), (Lx + 0.6, ar_y),
+                 arrowstyle="-|>", mutation_scale=12, lw=1.7, color=C_SLICE))
+    ax.text(Lx - 0.05, ar_y + 0.38, "relaxation\nraises $L$", ha="center",
+            va="bottom", fontsize=6.6, color=C_SLICE, fontproperties=FP_MED,
+            linespacing=1.15)
+    ax.add_patch(FancyArrowPatch((Ux + 0.75, ar_y), (Ux - 0.6, ar_y),
+                 arrowstyle="-|>", mutation_scale=12, lw=1.7, color=C_LOWR))
+    ax.text(Ux + 0.05, ar_y + 0.38, "restriction\nlowers $U$", ha="center",
+            va="bottom", fontsize=6.6, color=C_LOWR, fontproperties=FP_MED,
+            linespacing=1.15)
+
+    # markers + labels
+    for x, m, c, lab, sub, filled, ms in [
+        (Lx, "^", C_SLICE, "$L$", "lower bound", False, 11),
+        (Sx, "*", C_EXACT, r"$\mathrm{OT}^\star$", "true optimum", True, 16),
+        (Ux, "s", C_LOWR, "$U$", "upper bound", False, 10),
     ]:
-        ax.plot([x], [y0], m, ms=11 if m == "*" else 8,
-                mfc=(c if m == "*" else "white"), mec=c, mew=1.5, zorder=6)
-        ax.text(x, y0 + 0.30, lab, ha="center", va="bottom",
-                fontsize=10.5, color=c)
-        ax.text(x, y0 + 0.72, sub, ha="center", va="bottom",
-                fontsize=6.5, color=GREY7, fontproperties=FP_REG)
-    yb = y0 - 0.38
-    ax.plot([L, U], [yb, yb], color=C_GAP, lw=1.3)
-    for x in (L, U): ax.plot([x, x], [yb, yb + 0.09], color=C_GAP, lw=1.3)
-    ax.annotate(r"duality gap  $G = U - L$",
-                xy=((L + U) / 2, yb), xytext=((L + U) / 2, yb - 0.38),
-                ha="center", va="top", fontsize=9.5, color=C_GAPTX,
-                fontproperties=FP_MED,
-                arrowprops=dict(arrowstyle="-", color=C_GAP, lw=0.7))
-    ax.add_patch(FancyArrowPatch(
-        (L - 0.85, y0 + 0.02), (L + 0.45, y0 + 0.02),
-        arrowstyle="-|>", mutation_scale=11, lw=1.2, color=C_SLICE))
-    ax.text(L - 0.9, y0 - 0.24, "relaxation\nraises $L$",
-            ha="center", va="top", fontsize=6.8, color=C_SLICE,
-            fontproperties=FP_MED)
-    ax.add_patch(FancyArrowPatch(
-        (U + 0.85, y0 + 0.02), (U - 0.45, y0 + 0.02),
-        arrowstyle="-|>", mutation_scale=11, lw=1.2, color=C_LOWR))
-    ax.text(U + 0.9, y0 - 0.24, "restriction\nlowers $U$",
-            ha="center", va="top", fontsize=6.8, color=C_LOWR,
-            fontproperties=FP_MED)
-    ax.text(5.35, 2.97,
-            "Every approximate-OT family controls one side of the Kantorovich duality gap",
-            ha="center", va="top", fontsize=8.5, color=GREY9,
-            fontproperties=FP_MED)
-    fig.tight_layout(pad=0.25); _save(fig, outdir, "fig1_teaser")
+        ax.plot([x], [axis_y], m, ms=ms, mfc=(c if filled else "white"),
+                mec=c, mew=1.8, zorder=6)
+        ax.text(x, axis_y + 0.46, lab, ha="center", va="bottom",
+                fontsize=12, color=c)
+        ax.text(x, axis_y - 0.78, sub, ha="center", va="top",
+                fontsize=6.2, color=GREY7, fontproperties=FP_REG)
+
+    # gap bracket below
+    yb = axis_y - 1.85
+    ax.plot([Lx, Ux], [yb, yb], color=C_GAP, lw=1.8, solid_capstyle="round", zorder=4)
+    for x in (Lx, Ux):
+        ax.plot([x, x], [yb, yb + 0.2], color=C_GAP, lw=1.8, solid_capstyle="round", zorder=4)
+    ax.annotate("", xy=(Sx, yb), xytext=(Sx, axis_y - 1.0),
+                arrowprops=dict(arrowstyle="-", color=C_GAP, lw=0.8, ls=(0, (2, 2))))
+    ax.text(Sx, yb - 0.45, r"duality gap  $G = U - L$", ha="center", va="top",
+            fontsize=9.5, color=C_GAPTX, fontproperties=FP_MED)
+
+    fig.tight_layout(pad=0.15); _save(fig, outdir, "fig1_teaser")
 
 
 def fig2_frontier(synth, outdir):
     rows = synth["frontier"]["rows"]; fams = {}
     for r in rows: fams.setdefault(r["family"], []).append(r)
-    fig, axes = plt.subplots(1, 2, figsize=(7.0, 2.9))
-    for ax, xk, xl in [(axes[0], "mem", "peak memory (MB)"), (axes[1], "time", "wall-clock time (s)")]:
+    fig, axes = plt.subplots(1, 2, figsize=(7.0, 3.0))
+    floor = 1.0 - 1.0 / 5  # sliced structural deficit in d=5 (Thm 1)
+    panels = [(axes[0], "mem", "peak memory (MB)"), (axes[1], "time", "wall-clock time (s)")]
+    for ax, xk, xl in panels:
+        # structural sliced-floor guide
+        ax.axhline(floor, color=C_SLICE, ls=(0, (5, 3)), lw=0.9, alpha=0.45, zorder=1)
         for fam in ["exact", "entropic", "lowrank", "minibatch", "sliced", "neural"]:
             if fam not in fams: continue
             rs = fams[fam]; xs = np.array([max(r[xk], 1e-3) for r in rs]); ys = np.array([max(r["rel_err_disc"], 5e-4) for r in rs]); o = np.argsort(xs)
             mk(ax, xs[o], ys[o], fam, label=(LABEL[fam] if xk == "mem" else None))
-        ax.set_xscale("log"); ax.set_yscale("log"); ax.set_xlabel(xl, color=GREY9, fontproperties=FP_REG); style_ax(ax)
+        ax.set_xscale("log"); ax.set_yscale("log"); ax.set_ylim(4e-4, 1.5)
+        ax.set_xlabel(xl, color=GREY9, fontproperties=FP_REG); style_ax(ax)
+
+    # annotations on the memory panel (left): the structural sliced floor, the
+    # certified-but-expensive corner, and Sinkhorn's fixed-memory descent.
+    a0 = axes[0]
+    a0.text(2e-3, floor * 1.12, r"sliced floor $1\!-\!1/d$", color=C_SLICE,
+            fontsize=6.3, fontproperties=FP_MED, va="bottom")
+    ent = sorted(fams.get("entropic", []), key=lambda r: r["mem"])
+    if ent:
+        xe = ent[0]["mem"]
+        a0.annotate(r"Sinkhorn: $\varepsilon\!\downarrow$" "\n" "(fixed memory)",
+                    xy=(xe * 0.97, 0.32), xytext=(xe * 0.18, 0.30),
+                    color=C_SINK, fontsize=6.0, fontproperties=FP_REG, ha="right",
+                    va="center", linespacing=1.2,
+                    arrowprops=dict(arrowstyle="-|>", color=C_SINK, lw=1.0))
+    ex = fams.get("exact", [{}])[0]
+    if ex.get("mem"):
+        a0.annotate(r"exact: $G=0$", xy=(ex["mem"], max(ex["rel_err_disc"], 5e-4)),
+                    xytext=(ex["mem"] * 0.5, 3e-3), color=C_EXACT, fontsize=6.0,
+                    fontproperties=FP_REG, ha="right", va="center",
+                    arrowprops=dict(arrowstyle="-", color=GREY5, lw=0.6))
+
     axes[0].set_ylabel(r"relative error vs.\ discrete $\mathrm{OT}^\star$", color=GREY9, fontproperties=FP_REG)
-    _leg(axes[0], loc="lower left", handlelength=2.0); fig.tight_layout(pad=0.4); _save(fig, outdir, "fig2_frontier")
+    leg = _leg(axes[0], loc="lower left", handlelength=1.8, fontsize=6.6,
+               title="filled $=$ two-sided (certified)")
+    plt.setp(leg.get_title(), fontsize=6.0, color=GREY7, fontproperties=FP_REG)
+    fig.tight_layout(pad=0.4); _save(fig, outdir, "fig2_frontier")
 
 
 def fig3_diagnostics(synth, outdir):
