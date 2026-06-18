@@ -96,20 +96,21 @@ from matplotlib.patches import FancyArrowPatch, FancyBboxPatch
 def fig1_teaser(outdir):
     # Single-column concept figure (AAAI ~3.33 in wide). A clean number-line:
     # OT* sits between a dual lower bound L and a primal upper bound U; relaxation
-    # pushes L up, restriction pushes U down, and the amber span is the gap.
-    fig, ax = plt.subplots(figsize=(3.4, 2.55))
-    ax.set_xlim(0, 10); ax.set_ylim(0, 10); ax.axis("off")
-    axis_y = 4.5
+    # pushes L up, restriction pushes U down, and the amber span is the gap. The
+    # mechanism arrows sit well above the L/U symbols so nothing overlaps.
+    fig, ax = plt.subplots(figsize=(3.4, 2.75))
+    ax.set_xlim(0, 10); ax.set_ylim(0.6, 8.7); ax.axis("off")
+    axis_y = 3.9
     Lx, Sx, Ux = 2.45, 5.0, 7.55
 
     # title (two centered lines)
-    ax.text(5.0, 9.7, "Every approximate-OT family controls one\n"
+    ax.text(5.0, 8.5, "Every approximate-OT family controls one\n"
             "side of the Kantorovich duality gap",
             ha="center", va="top", fontsize=8.8, color=GREY9,
             fontproperties=FP_MED, linespacing=1.35)
 
     # soft amber gap band between L and U
-    ax.add_patch(FancyBboxPatch((Lx, axis_y - 0.55), Ux - Lx, 1.1,
+    ax.add_patch(FancyBboxPatch((Lx, axis_y - 0.5), Ux - Lx, 1.0,
                  boxstyle="round,pad=0,rounding_size=0.14",
                  fc=SURF_AMBER, ec="none", zorder=0))
 
@@ -119,20 +120,18 @@ def fig1_teaser(outdir):
     ax.text(9.5, axis_y, "transport\ncost", va="center", ha="left",
             fontsize=6.0, color=GREY7, fontproperties=FP_REG, linespacing=1.1)
 
-    # inward push arrows (above the axis)
-    ar_y = axis_y + 1.05
-    ax.add_patch(FancyArrowPatch((Lx - 0.75, ar_y), (Lx + 0.6, ar_y),
-                 arrowstyle="-|>", mutation_scale=12, lw=1.7, color=C_SLICE))
-    ax.text(Lx - 0.05, ar_y + 0.38, "relaxation\nraises $L$", ha="center",
-            va="bottom", fontsize=6.6, color=C_SLICE, fontproperties=FP_MED,
-            linespacing=1.15)
-    ax.add_patch(FancyArrowPatch((Ux + 0.75, ar_y), (Ux - 0.6, ar_y),
-                 arrowstyle="-|>", mutation_scale=12, lw=1.7, color=C_LOWR))
-    ax.text(Ux + 0.05, ar_y + 0.38, "restriction\nlowers $U$", ha="center",
-            va="bottom", fontsize=6.6, color=C_LOWR, fontproperties=FP_MED,
-            linespacing=1.15)
+    # mechanism push-arrows, placed high above the axis (clear of the L/U symbols)
+    ar_y = axis_y + 2.05
+    ax.add_patch(FancyArrowPatch((Lx - 0.7, ar_y), (Lx + 0.7, ar_y),
+                 arrowstyle="-|>", mutation_scale=13, lw=1.8, color=C_SLICE))
+    ax.text(Lx, ar_y + 0.32, "relaxation raises $L$", ha="center",
+            va="bottom", fontsize=6.8, color=C_SLICE, fontproperties=FP_MED)
+    ax.add_patch(FancyArrowPatch((Ux + 0.7, ar_y), (Ux - 0.7, ar_y),
+                 arrowstyle="-|>", mutation_scale=13, lw=1.8, color=C_LOWR))
+    ax.text(Ux, ar_y + 0.32, "restriction lowers $U$", ha="center",
+            va="bottom", fontsize=6.8, color=C_LOWR, fontproperties=FP_MED)
 
-    # markers + labels
+    # markers + symbol labels (symbols sit just above the markers, well below arrows)
     for x, m, c, lab, sub, filled, ms in [
         (Lx, "^", C_SLICE, "$L$", "lower bound", False, 11),
         (Sx, "*", C_EXACT, r"$\mathrm{OT}^\star$", "true optimum", True, 16),
@@ -140,19 +139,19 @@ def fig1_teaser(outdir):
     ]:
         ax.plot([x], [axis_y], m, ms=ms, mfc=(c if filled else "white"),
                 mec=c, mew=1.8, zorder=6)
-        ax.text(x, axis_y + 0.46, lab, ha="center", va="bottom",
+        ax.text(x, axis_y + 0.48, lab, ha="center", va="bottom",
                 fontsize=12, color=c)
-        ax.text(x, axis_y - 0.78, sub, ha="center", va="top",
+        ax.text(x, axis_y - 0.72, sub, ha="center", va="top",
                 fontsize=6.2, color=GREY7, fontproperties=FP_REG)
 
     # gap bracket below
-    yb = axis_y - 1.85
+    yb = axis_y - 1.75
     ax.plot([Lx, Ux], [yb, yb], color=C_GAP, lw=1.8, solid_capstyle="round", zorder=4)
     for x in (Lx, Ux):
         ax.plot([x, x], [yb, yb + 0.2], color=C_GAP, lw=1.8, solid_capstyle="round", zorder=4)
-    ax.annotate("", xy=(Sx, yb), xytext=(Sx, axis_y - 1.0),
+    ax.annotate("", xy=(Sx, yb), xytext=(Sx, axis_y - 0.95),
                 arrowprops=dict(arrowstyle="-", color=C_GAP, lw=0.8, ls=(0, (2, 2))))
-    ax.text(Sx, yb - 0.45, r"duality gap  $G = U - L$", ha="center", va="top",
+    ax.text(Sx, yb - 0.42, r"duality gap  $G = U - L$", ha="center", va="top",
             fontsize=9.5, color=C_GAPTX, fontproperties=FP_MED)
 
     fig.tight_layout(pad=0.15); _save(fig, outdir, "fig1_teaser")
@@ -163,8 +162,9 @@ def fig2_frontier(synth, outdir):
     for r in rows: fams.setdefault(r["family"], []).append(r)
     fig, axes = plt.subplots(1, 2, figsize=(7.0, 3.0))
     floor = 1.0 - 1.0 / 5  # sliced structural deficit in d=5 (Thm 1)
-    panels = [(axes[0], "mem", "peak memory (MB)"), (axes[1], "time", "wall-clock time (s)")]
-    for ax, xk, xl in panels:
+    panels = [(axes[0], "mem", "peak memory (MB)", "(a) error vs. memory"),
+              (axes[1], "time", "wall-clock time (s)", "(b) error vs. time")]
+    for ax, xk, xl, ttl in panels:
         # structural sliced-floor guide
         ax.axhline(floor, color=C_SLICE, ls=(0, (5, 3)), lw=0.9, alpha=0.45, zorder=1)
         for fam in ["exact", "entropic", "lowrank", "minibatch", "sliced", "neural"]:
@@ -172,7 +172,9 @@ def fig2_frontier(synth, outdir):
             rs = fams[fam]; xs = np.array([max(r[xk], 1e-3) for r in rs]); ys = np.array([max(r["rel_err_disc"], 5e-4) for r in rs]); o = np.argsort(xs)
             mk(ax, xs[o], ys[o], fam, label=(LABEL[fam] if xk == "mem" else None))
         ax.set_xscale("log"); ax.set_yscale("log"); ax.set_ylim(4e-4, 1.5)
-        ax.set_xlabel(xl, color=GREY9, fontproperties=FP_REG); style_ax(ax)
+        ax.set_xlabel(xl, color=GREY9, fontproperties=FP_REG)
+        ax.set_title(ttl, color=GREY9, fontproperties=FP_MED, fontsize=8.6, loc="left", pad=4)
+        style_ax(ax)
 
     # annotations on the memory panel (left): the structural sliced floor, the
     # certified-but-expensive corner, and Sinkhorn's fixed-memory descent.
@@ -189,12 +191,12 @@ def fig2_frontier(synth, outdir):
                     arrowprops=dict(arrowstyle="-|>", color=C_SINK, lw=1.0))
     ex = fams.get("exact", [{}])[0]
     if ex.get("mem"):
-        a0.annotate(r"exact: $G=0$", xy=(ex["mem"], max(ex["rel_err_disc"], 5e-4)),
-                    xytext=(ex["mem"] * 0.5, 3e-3), color=C_EXACT, fontsize=6.0,
+        a0.annotate(r"exact LP ($G\!=\!0$)", xy=(ex["mem"], max(ex["rel_err_disc"], 5e-4)),
+                    xytext=(ex["mem"] * 0.4, 3e-3), color=C_EXACT, fontsize=6.0,
                     fontproperties=FP_REG, ha="right", va="center",
                     arrowprops=dict(arrowstyle="-", color=GREY5, lw=0.6))
 
-    axes[0].set_ylabel(r"relative error vs.\ discrete $\mathrm{OT}^\star$", color=GREY9, fontproperties=FP_REG)
+    axes[0].set_ylabel(r"relative error vs. discrete $\mathrm{OT}^\star$", color=GREY9, fontproperties=FP_REG)
     leg = _leg(axes[0], loc="lower left", handlelength=1.8, fontsize=6.6,
                title="filled $=$ two-sided (certified)")
     plt.setp(leg.get_title(), fontsize=6.0, color=GREY7, fontproperties=FP_REG)
@@ -244,7 +246,7 @@ def fig4_hybrid(synth, outdir):
     ax.set_xscale("log", base=2); ax.set_xlabel(r"dimension $d$", color=GREY9, fontproperties=FP_REG); ax.set_ylabel("relative certified gap", color=C_GAPTX, fontproperties=FP_MED); ax.set_ylim(-0.04, 1.12)
     ax.set_title("(a) cheap certificates by composition", color=GREY9, fontproperties=FP_MED, fontsize=8.5); _leg(ax, loc="lower right", handlelength=1.7, fontsize=6.2); style_ax(ax)
     ng = synth["nongauss"]; ax = axes[1]; _frontier_panel(ax, ng["rows"], "rel_err", hybrid=ng["hybrid"])
-    ax.set_xlabel("peak memory (MB)", color=GREY9, fontproperties=FP_REG); ax.set_ylabel(r"rel. error vs.\ discrete $\mathrm{OT}^\star$", color=GREY9, fontproperties=FP_REG)
+    ax.set_xlabel("peak memory (MB)", color=GREY9, fontproperties=FP_REG); ax.set_ylabel(r"rel. error vs. discrete $\mathrm{OT}^\star$", color=GREY9, fontproperties=FP_REG)
     ax.set_title("(b) non-Gaussian frontier (two-moons)", color=GREY9, fontproperties=FP_MED, fontsize=8.5); _leg(ax, loc="lower left", handlelength=1.6, fontsize=6.2); style_ax(ax)
     fig.tight_layout(pad=0.5); _save(fig, outdir, "fig4_hybrid")
 
@@ -470,7 +472,7 @@ def real_frontier(real, outdir):
         _frontier_panel(ax, rec["frontier"]["rows"], "rel_err", hybrid=rec.get("composed"))
         ax.set_xlabel("peak memory (MB)", color=GREY9, fontproperties=FP_REG)
         ax.set_title(PRETTY[name], color=GREY9, fontproperties=FP_MED, fontsize=8.7); style_ax(ax)
-    axes[0][0].set_ylabel(r"rel. error vs.\ discrete $\mathrm{OT}^\star$", color=GREY9, fontproperties=FP_REG)
+    axes[0][0].set_ylabel(r"rel. error vs. discrete $\mathrm{OT}^\star$", color=GREY9, fontproperties=FP_REG)
     _leg(axes[0][0], loc="lower left", handlelength=1.6, fontsize=6.3)
     fig.tight_layout(pad=0.5); _save(fig, outdir, "real_frontier")
 
