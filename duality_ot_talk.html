@@ -1,0 +1,787 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A Duality Principle for Optimal Transport — Khang Ta</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Google+Sans+Code:wght@400..600&family=Google+Sans+Flex:opsz,wght@8..144,400..700&family=Roboto:wght@400;500&family=Roboto+Mono&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
+<style>
+:root{
+  --g-blue:#4285F4; --g-red:#EA4335; --g-yellow:#FBBC04; --g-green:#34A853;
+  --link:#1A73E8; --link-hover:#1967D2;
+  --grey-50:#F8F9FA; --grey-100:#F1F3F4; --grey-200:#E8EAED; --grey-300:#DADCE0;
+  --grey-500:#9AA0A6; --grey-700:#5F6368; --grey-800:#3C4043; --grey-900:#202124;
+  --bg:#FFFFFF; --surface:var(--grey-50); --border:var(--grey-300);
+  --text:var(--grey-900); --text-2:var(--grey-700);
+  --amber:#B06000; --amber-bg:#FEF7E0; --blue-bg:#E8F0FE; --red-bg:#FCE8E6; --green-bg:#E6F4EA;
+  --font-display:'Google Sans Flex','Google Sans',Roboto,Arial,sans-serif;
+  --font-body:'Google Sans Flex',Roboto,system-ui,sans-serif;
+  --font-mono:'Google Sans Code','Roboto Mono',ui-monospace,monospace;
+  --radius-sm:8px; --radius-md:12px; --radius-lg:16px; --radius-pill:999px;
+  --shadow-1:0 1px 2px rgba(60,64,67,.3),0 1px 3px 1px rgba(60,64,67,.15);
+  --shadow-2:0 1px 3px rgba(60,64,67,.3),0 4px 8px 3px rgba(60,64,67,.15);
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+html,body{height:100%;}
+body{background:var(--bg);color:var(--text);font-family:var(--font-body);
+  -webkit-font-smoothing:antialiased;overflow:hidden;line-height:1.5;}
+.katex{font-size:1.04em;}
+
+/* ---------- slide shell ---------- */
+.deck{position:fixed;inset:0;}
+.slide{position:absolute;inset:0;display:flex;flex-direction:column;
+  padding:clamp(26px,4vh,50px) clamp(34px,6.5vw,110px) clamp(48px,6vh,60px);
+  opacity:0;visibility:hidden;transform:translateY(12px);
+  transition:opacity .45s ease,transform .45s ease;pointer-events:none;}
+.slide.active{opacity:1;visibility:visible;transform:none;pointer-events:auto;}
+@media(prefers-reduced-motion:reduce){.slide{transition:opacity .2s;transform:none;}}
+
+.top{display:flex;align-items:baseline;justify-content:space-between;gap:20px;
+  border-bottom:1px solid var(--border);padding-bottom:12px;}
+.kick{font-family:var(--font-mono);font-size:clamp(11px,1.1vw,13px);letter-spacing:.16em;
+  text-transform:uppercase;color:var(--g-blue);}
+.kick .n{color:var(--text-2);}
+.count{font-family:var(--font-mono);font-size:clamp(11px,1vw,12.5px);color:var(--grey-500);
+  letter-spacing:.08em;font-variant-numeric:tabular-nums;white-space:nowrap;}
+
+.body{flex:1;display:flex;flex-direction:column;justify-content:center;min-height:0;padding:clamp(12px,3vh,34px) 0;}
+.foot{display:flex;align-items:center;justify-content:space-between;gap:16px;
+  border-top:1px solid var(--border);padding-top:10px;
+  font-family:var(--font-mono);font-size:clamp(10.5px,1vw,12px);color:var(--grey-500);}
+
+.progress{position:fixed;left:0;bottom:0;height:3px;background:var(--g-blue);width:0;transition:width .4s ease;z-index:30;}
+
+h1{font-family:var(--font-display);font-weight:400;font-size:clamp(32px,6vw,60px);
+  line-height:1.06;letter-spacing:-.02em;}
+h2{font-family:var(--font-display);font-weight:500;font-size:clamp(24px,3.8vw,42px);
+  line-height:1.1;letter-spacing:-.015em;margin-bottom:.1em;}
+h2 em{font-style:normal;color:var(--g-blue);}
+.lead{font-size:clamp(15px,1.7vw,21px);color:var(--text-2);max-width:64ch;line-height:1.5;}
+p{font-size:clamp(15px,1.5vw,19px);line-height:1.55;max-width:66ch;}
+.muted{color:var(--text-2);}
+.em-b{color:var(--g-blue);} .em-g{color:var(--g-green);} .em-r{color:var(--g-red);} .em-a{color:var(--amber);}
+
+/* ---------- pills / chips ---------- */
+.pill{display:inline-block;font-family:var(--font-mono);font-size:clamp(11px,1.1vw,13px);color:var(--text-2);
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-pill);padding:6px 15px;}
+.chip{font-family:var(--font-mono);font-size:clamp(9.5px,.95vw,11px);letter-spacing:.06em;text-transform:uppercase;
+  padding:3px 9px;border-radius:var(--radius-pill);flex:none;font-weight:500;}
+.chip.bad{background:var(--red-bg);color:#C5221F;} .chip.good{background:var(--green-bg);color:#137333;}
+.chip.up{background:var(--green-bg);color:#137333;} .chip.dn{background:var(--blue-bg);color:var(--link);}
+.chip.idea{background:var(--amber-bg);color:var(--amber);}
+
+/* ---------- cards / grids ---------- */
+.grid{display:grid;gap:clamp(12px,1.6vw,20px);}
+.g2{grid-template-columns:1fr 1fr;} .g3{grid-template-columns:repeat(3,1fr);} .g4{grid-template-columns:repeat(4,1fr);}
+@media(max-width:900px){.g3,.g4{grid-template-columns:1fr 1fr;} .g2{grid-template-columns:1fr;}}
+.card{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-md);
+  padding:clamp(14px,1.8vw,24px);box-shadow:var(--shadow-1);}
+.card.flat{box-shadow:none;background:var(--surface);}
+.card h3{font-family:var(--font-display);font-weight:500;font-size:clamp(15px,1.7vw,21px);
+  margin-bottom:.4em;display:flex;align-items:center;gap:10px;}
+.card p{font-size:clamp(13px,1.35vw,16px);color:var(--text-2);max-width:none;line-height:1.5;}
+.card ul{list-style:none;margin-top:.3em;}
+.card ul li{font-size:clamp(13px,1.35vw,16px);color:var(--text-2);padding-left:1.1em;position:relative;margin:.28em 0;}
+.card ul li::before{content:"";position:absolute;left:0;top:.6em;width:6px;height:6px;border-radius:2px;background:var(--grey-500);}
+.card.b ul li::before{background:var(--g-blue);} .card.g ul li::before{background:var(--g-green);} .card.r ul li::before{background:var(--g-red);}
+
+.take{margin-top:clamp(14px,2.2vh,24px);background:var(--blue-bg);border:1px solid rgba(66,133,244,.35);
+  border-radius:var(--radius-md);padding:clamp(13px,1.6vw,20px) clamp(16px,1.8vw,22px);
+  font-size:clamp(15px,1.6vw,20px);line-height:1.45;color:var(--text);}
+.take b{color:var(--link);}
+.take.amber{background:var(--amber-bg);border-color:rgba(176,96,0,.3);} .take.amber b{color:var(--amber);}
+.take.green{background:var(--green-bg);border-color:rgba(52,168,83,.3);} .take.green b{color:#137333;}
+
+/* ---------- equation stage (template signature) ---------- */
+.eq-stage{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-md);
+  padding:clamp(20px,3vw,34px) 20px;text-align:center;overflow-x:auto;}
+.eq-stage .katex{font-size:clamp(1.6em,3.4vw,2.4em);}
+.eq-term{padding:.04em .12em;border-radius:6px;transition:background .2s,box-shadow .2s;}
+.eq-term.term-G{color:var(--amber);} .eq-term.term-U{color:var(--g-green);}
+.eq-term.term-L{color:var(--g-red);} .eq-term.term-OT{color:var(--g-blue);}
+.eq-term.active{background:#fff;box-shadow:0 0 0 2px currentColor inset,var(--shadow-1);}
+.annot{display:grid;grid-template-columns:repeat(3,1fr);gap:clamp(10px,1.4vw,16px);margin-top:clamp(16px,2.2vh,24px);}
+@media(max-width:760px){.annot{grid-template-columns:1fr;}}
+.annot-card{border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px 16px;background:var(--bg);transition:all .25s ease;}
+.annot-card .at{font-family:var(--font-mono);font-size:clamp(12px,1.3vw,14px);font-weight:500;display:flex;align-items:center;gap:9px;}
+.annot-card .ad{font-size:clamp(12px,1.25vw,14.5px);color:var(--text-2);margin-top:7px;line-height:1.45;}
+.swatch{width:13px;height:13px;border-radius:4px;flex:none;}
+.annot-card.active{box-shadow:var(--shadow-2);transform:translateY(-2px);}
+
+/* ---------- duality-gap rail ---------- */
+.rail{position:relative;width:min(760px,94%);margin:clamp(22px,4vh,46px) auto clamp(10px,2vh,20px);height:150px;}
+.rail.lg{height:168px;width:min(820px,96%);}
+.rail .axis{position:absolute;left:0;right:0;top:50%;height:2px;background:var(--grey-700);border-radius:2px;}
+.rail .axis::after{content:"";position:absolute;right:-1px;top:-4px;border-left:9px solid var(--grey-700);
+  border-top:5px solid transparent;border-bottom:5px solid transparent;}
+.rail .axcap{position:absolute;right:0;top:calc(50% + 12px);font-family:var(--font-mono);font-size:11px;color:var(--grey-500);}
+.rail .band{position:absolute;top:calc(50% - 13px);height:26px;background:var(--amber-bg);border:1px solid rgba(176,96,0,.25);border-radius:5px;}
+.rail .node{position:absolute;top:50%;transform:translate(-50%,-50%);width:18px;height:18px;}
+.rail .node.L{color:var(--g-red);} .rail .node.OT{color:var(--g-blue);} .rail .node.U{color:var(--g-green);}
+.rail .lab{position:absolute;transform:translateX(-50%);top:calc(50% - 54px);font-size:clamp(18px,2vw,24px);}
+.rail .lab.L{color:var(--g-red);} .rail .lab.OT{color:var(--g-blue);} .rail .lab.U{color:var(--g-green);}
+.rail .sub{position:absolute;transform:translateX(-50%);top:calc(50% - 86px);font-family:var(--font-mono);font-size:11px;color:var(--grey-500);white-space:nowrap;}
+.rail .brace{position:absolute;top:calc(50% + 16px);height:13px;border:1.5px solid var(--amber);border-top:none;border-radius:0 0 4px 4px;}
+.rail .gtxt{position:absolute;transform:translateX(-50%);top:calc(50% + 34px);color:var(--amber);font-size:clamp(16px,1.8vw,22px);}
+.rail .ann{position:absolute;transform:translateX(-50%);top:calc(50% + 30px);font-family:var(--font-mono);font-size:11px;font-weight:600;white-space:nowrap;}
+.rail .ann.L{color:var(--g-red);} .rail .ann.U{color:var(--g-green);}
+
+/* ---------- vertical axis ---------- */
+.vrail{position:relative;height:min(330px,46vh);width:240px;margin:0 auto;}
+.vrail .vline{position:absolute;left:50%;top:0;bottom:0;width:2px;background:var(--grey-700);transform:translateX(-50%);border-radius:2px;}
+.vrail .vnode{position:absolute;left:50%;transform:translate(-50%,-50%);width:18px;height:18px;}
+.vrail .vlab{position:absolute;left:calc(50% + 20px);transform:translateY(-50%);font-size:clamp(17px,1.9vw,22px);}
+.vrail .vbrace{position:absolute;right:calc(50% + 24px);width:13px;border:1.5px solid var(--amber);border-right:none;border-radius:4px 0 0 4px;}
+.vrail .vtxt{position:absolute;right:calc(50% + 42px);transform:translateY(-50%);text-align:right;font-family:var(--font-mono);font-size:11px;color:var(--grey-500);white-space:nowrap;line-height:1.3;}
+
+/* ---------- flow / pipeline ---------- */
+.flow{display:flex;align-items:center;justify-content:center;gap:0;flex-wrap:wrap;}
+.fnode{flex:0 1 200px;text-align:center;border:1px solid var(--border);border-radius:var(--radius-md);
+  padding:clamp(12px,1.6vw,20px) clamp(10px,1.4vw,18px);background:var(--bg);box-shadow:var(--shadow-1);}
+.fnode .ft{font-family:var(--font-display);font-weight:500;font-size:clamp(15px,1.7vw,20px);}
+.fnode .fd{font-size:clamp(12px,1.2vw,14px);color:var(--text-2);margin-top:4px;}
+.fnode.geo{border-color:var(--g-blue);} .fnode.alg{border-color:var(--g-green);}
+.fnode.mid{background:var(--amber-bg);border-color:var(--amber);}
+.fnode.mid .ft{color:var(--amber);}
+.farrow{color:var(--grey-300);font-size:24px;padding:6px 12px;}
+
+/* ---------- table ---------- */
+table.cls{border-collapse:separate;border-spacing:0;width:100%;font-size:clamp(13px,1.45vw,18px);
+  border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden;}
+table.cls th,table.cls td{padding:.5em .8em;text-align:left;border-bottom:1px solid var(--border);}
+table.cls tr:last-child td{border-bottom:none;}
+table.cls thead th{background:var(--surface);font-family:var(--font-display);font-weight:500;}
+table.cls td.tag{font-weight:500;}
+.bL{color:var(--g-red);} .bU{color:var(--g-green);} .bB{color:var(--g-blue);}
+tr.hl td{background:var(--green-bg);}
+
+/* ---------- stat cards ---------- */
+.stat .big{font-family:var(--font-display);font-weight:500;font-size:clamp(20px,2.4vw,30px);letter-spacing:-.01em;}
+.stat .lbl{font-family:var(--font-mono);font-size:clamp(10.5px,1.1vw,12.5px);color:var(--text-2);text-transform:uppercase;letter-spacing:.08em;margin-bottom:.3em;}
+.trend{display:flex;align-items:center;gap:.5em;font-size:clamp(13px,1.4vw,17px);margin-top:.3em;}
+
+/* ---------- charts ---------- */
+.chart-wrap{display:flex;flex-direction:column;align-items:center;gap:.5em;}
+.chart-wrap svg{width:100%;max-width:640px;height:auto;display:block;}
+.cap{font-family:var(--font-mono);font-size:clamp(11px,1.2vw,13px);color:var(--text-2);text-align:center;max-width:60ch;}
+svg text{font-family:var(--font-body);}
+.ax{stroke:var(--grey-300);stroke-width:1.4;}
+.gl{stroke:var(--grey-200);stroke-width:1;}
+.axlab{fill:var(--text-2);font-size:13px;}
+.tick{fill:var(--grey-500);font-size:12px;font-family:var(--font-mono);}
+.leg{fill:var(--text-2);font-size:13px;}
+
+/* ---------- agenda ---------- */
+.agenda{display:grid;grid-template-columns:1fr 1fr;gap:clamp(10px,1.4vw,16px);margin-top:clamp(14px,2.4vh,28px);}
+@media(max-width:760px){.agenda{grid-template-columns:1fr;}}
+.ag-item{display:flex;align-items:center;gap:16px;border:1px solid var(--border);border-radius:var(--radius-md);
+  padding:clamp(12px,1.5vw,18px) clamp(14px,1.6vw,22px);background:var(--bg);transition:box-shadow .2s,border-color .2s;}
+.ag-item:hover{box-shadow:var(--shadow-1);border-color:var(--g-blue);}
+.ag-n{font-family:var(--font-mono);font-size:clamp(15px,1.7vw,20px);color:var(--g-blue);font-weight:500;flex:none;width:30px;}
+.ag-t{font-family:var(--font-display);font-weight:500;font-size:clamp(15px,1.6vw,20px);}
+.ag-d{font-size:clamp(12px,1.2vw,14px);color:var(--text-2);margin-top:1px;}
+
+/* ---------- title / thanks ---------- */
+.hero{flex:1;display:flex;flex-direction:column;justify-content:center;}
+.hero .pres{margin-top:clamp(22px,3.6vh,44px);display:flex;align-items:center;gap:14px;}
+.avatar{width:46px;height:46px;border-radius:50%;background:linear-gradient(135deg,var(--g-blue),var(--g-green));
+  color:#fff;display:flex;align-items:center;justify-content:center;font-family:var(--font-display);font-weight:500;font-size:18px;flex:none;}
+.pres .who{font-family:var(--font-display);font-weight:500;font-size:clamp(17px,1.9vw,23px);}
+.pres .role{font-family:var(--font-mono);font-size:clamp(11px,1.2vw,13px);color:var(--text-2);}
+.byline{margin-top:auto;border-top:1px solid var(--border);padding-top:12px;
+  font-family:var(--font-mono);font-size:clamp(11px,1.1vw,13px);color:var(--grey-500);
+  display:flex;justify-content:space-between;gap:14px;}
+.thanks{flex:1;display:flex;flex-direction:column;justify-content:center;align-items:flex-start;}
+
+/* ---------- theorem box ---------- */
+.thm{background:var(--surface);border:1.5px solid var(--g-blue);border-radius:var(--radius-md);
+  padding:clamp(14px,1.8vw,22px) clamp(16px,2vw,26px);margin:clamp(12px,1.8vh,20px) 0;}
+.thm .tlabel{font-family:var(--font-mono);font-size:clamp(11px,1.1vw,13px);letter-spacing:.12em;
+  text-transform:uppercase;color:var(--g-blue);font-weight:600;margin-bottom:.5em;}
+.thm p{font-size:clamp(14px,1.4vw,18px);color:var(--text);max-width:none;line-height:1.6;}
+.thm.barrier{border-color:var(--g-red);}
+.thm.barrier .tlabel{color:var(--g-red);}
+.thm.lemma{border-color:var(--g-green);}
+.thm.lemma .tlabel{color:var(--g-green);}
+
+/* ---------- nav ---------- */
+.nav{position:fixed;right:16px;bottom:10px;display:flex;gap:8px;z-index:40;}
+.nav button{font-family:var(--font-display);font-size:18px;line-height:1;width:36px;height:32px;
+  border:1px solid var(--border);background:#fff;color:var(--text);border-radius:var(--radius-pill);cursor:pointer;transition:background .15s;}
+.nav button:hover{background:var(--surface);}
+:focus-visible{outline:2px solid var(--link);outline-offset:2px;border-radius:6px;}
+.zone{position:fixed;top:0;bottom:46px;width:13%;z-index:10;cursor:pointer;}
+.zone.l{left:0;} .zone.r{right:0;}
+@media(max-width:560px){.slide{padding:18px 16px;}.nav{right:8px;}}
+</style>
+</head>
+<body>
+<div class="progress" id="prog"></div>
+<div class="zone l" data-prev></div>
+<div class="zone r" data-next></div>
+<div class="deck" id="deck">
+
+<!-- ===== 1 · TITLE ===== -->
+<section class="slide">
+  <div class="hero">
+    <span class="pill" style="align-self:flex-start">Optimal Transport · Research talk</span>
+    <h1 style="margin-top:22px">A Duality Principle<br>for Optimal Transport</h1>
+    <p class="lead" style="margin-top:18px;font-size:clamp(16px,2vw,24px);color:var(--text)">Bridging the <span class="em-b">geometric</span> and <span class="em-g">computational</span> perspectives</p>
+    <div class="pres">
+      <div class="avatar">KT</div>
+      <div>
+        <div class="who">Khang Ta</div>
+        <div class="role">AI Institute · Fulbright University Vietnam</div>
+      </div>
+    </div>
+  </div>
+  <div class="byline"><span>A Duality Principle for Optimal Transport</span><span id="t-eq">G = U &minus; L</span></div>
+</section>
+
+<!-- ===== 2 · AGENDA ===== -->
+<section class="slide" data-sec="Agenda">
+  <div class="body">
+    <h2>Agenda</h2>
+    <p class="lead">Two theorems, one algorithm, and one empirical principle — all organized by a single coordinate.</p>
+    <div class="agenda">
+      <div class="ag-item"><div class="ag-n">01</div><div><div class="ag-t">Motivation</div><div class="ag-d">Two worlds of OT and the missing link between them</div></div></div>
+      <div class="ag-item"><div class="ag-n">02</div><div><div class="ag-t">The coordinate</div><div class="ag-d">Kantorovich gap \(G=U-L\); relaxation vs restriction</div></div></div>
+      <div class="ag-item"><div class="ag-n">03</div><div><div class="ag-t">Theorem 1 · Deficit</div><div class="ag-d">Sliced OT loses \(\ge(1-1/d)\) for any Gaussian family</div></div></div>
+      <div class="ag-item"><div class="ag-n">04</div><div><div class="ag-t">Theorem 2 · Barrier</div><div class="ag-d">Certifying \(G\le\delta\) needs \(\Omega(n^2)\) cost queries</div></div></div>
+      <div class="ag-item"><div class="ag-n">05</div><div><div class="ag-t">Algorithm 1 · CGC</div><div class="ag-d">Cheap two-sided certificate by composing oracles</div></div></div>
+      <div class="ag-item"><div class="ag-n">06</div><div><div class="ag-t">Evidence</div><div class="ag-d">Proxy validity, decision usefulness, three real domains</div></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 3 · TWO WORLDS ===== -->
+<section class="slide" data-sec="Motivation">
+  <div class="body">
+    <h2>Two worlds of Optimal Transport</h2>
+    <p class="lead">For two decades OT has grown along two nearly separate tracks.</p>
+    <div class="grid g2" style="margin-top:clamp(14px,2.4vh,26px)">
+      <div class="card b">
+        <h3><span class="chip" style="background:var(--blue-bg);color:var(--link)">geometry</span> Wasserstein geometry</h3>
+        <ul><li>Wasserstein distance \(W_2\)</li><li>Geodesics &amp; barycenters</li><li>Gradient flows</li></ul>
+        <p style="margin-top:.6em;font-style:italic">What geometry does OT induce on probability space?</p>
+      </div>
+      <div class="card g">
+        <h3><span class="chip" style="background:var(--green-bg);color:#137333">computation</span> Computational OT</h3>
+        <ul><li>Sinkhorn · Sliced \(\mathrm{SW}_2\)</li><li>Low-rank · Minibatch</li><li>Neural OT</li></ul>
+        <p style="margin-top:.6em;font-style:italic">How do we compute OT at scale?</p>
+      </div>
+    </div>
+    <div class="take">Two communities, two vocabularies — but <b>no shared yardstick</b> linking approximation quality to Wasserstein geometry. How far is a fast solution from the truth?</div>
+  </div>
+</section>
+
+<!-- ===== 4 · KEY IDEA (colored equation) ===== -->
+<section class="slide" data-sec="The coordinate G = U − L">
+  <div class="body">
+    <h2>The missing quantity: the <em>duality gap</em></h2>
+    <p class="lead">Kantorovich duality brackets the true cost — their difference is computable without ever solving exact OT.</p>
+    <div class="eq-stage" style="margin-top:clamp(14px,2vh,22px)"><span id="eqG"></span></div>
+    <div class="annot" id="annotG">
+      <div class="annot-card" data-term="G"><div class="at"><span class="swatch" style="background:var(--amber)"></span>Duality gap \(G\)</div><div class="ad">A computable certificate of distance to true \(\mathrm{OT}^\star\) — never needs \(\mathrm{OT}^\star\) itself.</div></div>
+      <div class="annot-card" data-term="U"><div class="at"><span class="swatch" style="background:var(--g-green)"></span>Upper bound \(U\)</div><div class="ad">Cost of any feasible primal coupling \(\pi\in\Pi(\mu,\nu)\).</div></div>
+      <div class="annot-card" data-term="L"><div class="at"><span class="swatch" style="background:var(--g-red)"></span>Lower bound \(L\)</div><div class="ad">Value of any dual-feasible potential pair \((f,g)\in\Phi_c\).</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 5 · TAXONOMY ===== -->
+<section class="slide" data-sec="A taxonomy">
+  <div class="body">
+    <h2>Every method controls <em>one side</em> of \(G\)</h2>
+    <div class="grid g2" style="margin-top:clamp(14px,2.4vh,28px)">
+      <div class="card r">
+        <h3><span class="chip" style="background:var(--red-bg);color:#C5221F">relaxation</span> raises \(L\)</h3>
+        <ul>
+          <li>Sliced OT (avg 1-D dual)</li>
+          <li>Semi-dual / Dual OT</li>
+          <li>Neural potentials + margin correction</li>
+        </ul>
+        <p style="margin-top:.6em">shrinks the <em>dual deficit</em> \(\;\mathrm{OT}^\star-L\)</p>
+      </div>
+      <div class="card g">
+        <h3><span class="chip" style="background:var(--green-bg);color:#137333">restriction</span> lowers \(U\)</h3>
+        <ul>
+          <li>Low-rank OT (sub-coupling)</li>
+          <li>Minibatch OT (point-cloud)</li>
+          <li>Map rounding (Brenier-feasible)</li>
+        </ul>
+        <p style="margin-top:.6em">shrinks the <em>primal excess</em> \(\;U-\mathrm{OT}^\star\)</p>
+      </div>
+    </div>
+    <div class="take amber">
+      <b>The duality principle:</b> a method either raises \(L\) (relaxation), lowers \(U\) (restriction), or both — only the latter gives a certified two-sided gap.
+    </div>
+  </div>
+</section>
+
+<!-- ===== 6 · DUALITY PRINCIPLE (table + rail) ===== -->
+<section class="slide" data-sec="Which side?">
+  <div class="body">
+    <h2>Each family sees only <em>half</em> the picture</h2>
+    <div class="grid g2" style="align-items:center;margin-top:clamp(10px,2vh,22px)">
+      <div class="rail" data-rail="decomp" style="margin:0 auto"></div>
+      <table class="cls">
+        <thead><tr><th>Method</th><th>Controls</th><th>Certified?</th></tr></thead>
+        <tbody>
+          <tr><td class="tag">Sliced \(\mathrm{SW}_2\)</td><td class="bL">raises \(L\)</td><td>✗ one-sided</td></tr>
+          <tr><td class="tag">Semi-dual</td><td class="bL">raises \(L\)</td><td>✗ one-sided</td></tr>
+          <tr><td class="tag">Low-rank</td><td class="bU">lowers \(U\)</td><td>✗ one-sided</td></tr>
+          <tr><td class="tag">Minibatch</td><td class="bU">lowers \(U\)</td><td>✗ one-sided</td></tr>
+          <tr><td class="tag">Sinkhorn</td><td class="bB">both sides</td><td>✓ certified</td></tr>
+          <tr><td class="tag">Exact LP</td><td class="bB">both sides</td><td>✓ \(G=0\)</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="take">Most approximate OT is a <b>one-sided problem</b>. Only Sinkhorn and exact LP certify the full gap — and exact LP is infeasible past \(n\approx4{,}000\).</div>
+  </div>
+</section>
+
+<!-- ===== 7 · FRONTIER (svg scatter) ===== -->
+<section class="slide" data-sec="Fidelity–cost frontier">
+  <div class="body">
+    <h2>Why fast OT usually <em>loses</em> geometry</h2>
+    <div class="chart-wrap" style="margin-top:clamp(6px,1.4vh,16px)">
+      <svg viewBox="0 0 680 360" role="img" aria-label="fidelity versus cost frontier">
+        <!-- gridlines -->
+        <g class="gl">
+          <line x1="70" y1="40"  x2="640" y2="40"/>
+          <line x1="70" y1="135" x2="640" y2="135"/>
+          <line x1="70" y1="230" x2="640" y2="230"/>
+          <line x1="70" y1="325" x2="640" y2="325"/>
+        </g>
+        <!-- sliced floor line at ~0.82 -->
+        <line x1="70" y1="73" x2="350" y2="73" stroke="#EA4335" stroke-width="1" stroke-dasharray="4 3" opacity=".5"/>
+        <text x="355" y="77" fill="#EA4335" font-size="11" opacity=".8">sliced floor ≈ 0.82</text>
+        <!-- axes -->
+        <line class="ax" x1="70" y1="40" x2="70" y2="325"/>
+        <line class="ax" x1="70" y1="325" x2="640" y2="325"/>
+        <!-- y ticks -->
+        <g class="tick" text-anchor="end">
+          <text x="62" y="44">1</text><text x="62" y="139">0.1</text>
+          <text x="62" y="234">0.01</text><text x="62" y="329">0.001</text>
+        </g>
+        <text class="axlab" x="22" y="185" transform="rotate(-90 22 185)" text-anchor="middle">relative error vs OT*  (log scale)</text>
+        <text class="axlab" x="355" y="356" text-anchor="middle">compute cost  (memory × time) →</text>
+        <!-- region labels -->
+        <text class="leg" x="120" y="100" fill="#C5221F">one-sided · plateaus at sliced floor</text>
+        <text class="leg" x="490" y="275" fill="#137333" text-anchor="middle">two-sided · certified</text>
+        <!-- sliced (△ red hollow) error ≈ 0.82 (floor from Thm 1) -->
+        <path d="M130 63 l9 16 l-18 0 z" fill="none" stroke="#EA4335" stroke-width="2"/>
+        <text class="leg" x="146" y="73" fill="#EA4335">Sliced</text>
+        <!-- minibatch (◇ grey hollow) error ≈ 0.30→0.03 -->
+        <path d="M210 147 l8 8 l-8 8 l-8 -8 z" fill="none" stroke="#5F6368" stroke-width="2"/>
+        <text class="leg" x="226" y="159" fill="#5F6368">Minibatch</text>
+        <!-- low-rank (□ green hollow trail by rank) error ≈ 0.69→0.11 -->
+        <g fill="none" stroke="#34A853" stroke-width="2">
+          <rect x="285" y="107" width="13" height="13" rx="2"/>
+          <rect x="338" y="143" width="13" height="13" rx="2"/>
+          <rect x="395" y="183" width="13" height="13" rx="2"/>
+        </g>
+        <polyline points="292,114 345,150 402,190" fill="none" stroke="#34A853" stroke-width="1.4" stroke-dasharray="3 3"/>
+        <text class="leg" x="280" y="105" fill="#137333">Low-rank</text>
+        <!-- sinkhorn (● blue filled, certified trail ε↓) error 0.80→0.10 -->
+        <polyline points="440,113 478,163 518,210 558,250" fill="none" stroke="#5E97F6" stroke-width="1.4"/>
+        <g fill="#5E97F6">
+          <circle cx="440" cy="113" r="6"/>
+          <circle cx="478" cy="163" r="6"/>
+          <circle cx="518" cy="210" r="6"/>
+          <circle cx="558" cy="250" r="6"/>
+        </g>
+        <text class="leg" x="454" y="111" fill="#1A73E8">Sinkhorn  \(\varepsilon\!\downarrow\)</text>
+        <!-- OOM annotation -->
+        <text x="570" y="178" fill="#9AA0A6" font-size="10" text-anchor="middle">float64 OOM</text>
+        <text x="570" y="190" fill="#9AA0A6" font-size="10" text-anchor="middle">n ≈ 55k</text>
+        <!-- exact LP (★ blue, G=0) -->
+        <path d="M600 302 l3.2 6.6 7.3 1 -5.3 5.1 1.3 7.2 -6.5 -3.4 -6.5 3.4 1.3 -7.2 -5.3 -5.1 7.3 -1 z" fill="#4285F4"/>
+        <text class="leg" x="586" y="299" fill="#4285F4" text-anchor="end">Exact LP  (G=0)</text>
+      </svg>
+      <div class="cap">Fidelity–cost frontier measured on Gaussian ground truth, \(n=3{,}000\), \(d=16\), 5 seeds.</div>
+    </div>
+    <div class="take">Sliced OT <b>plateaus</b> — it cannot reach low error regardless of cost. Certified methods (Sinkhorn) need both bounds to converge.</div>
+  </div>
+</section>
+
+<!-- ===== 8 · THEOREM 1 ===== -->
+<section class="slide" data-sec="Theorem 1 · Sliced deficit">
+  <div class="body">
+    <h2>Theorem 1 — Generalized <em>dimensional deficit</em></h2>
+    <div class="grid g2" style="align-items:start;margin-top:clamp(8px,1.4vh,16px)">
+      <div>
+        <div class="thm">
+          <div class="tlabel">Theorem 1</div>
+          <p><strong>(i) Common covariance (exact).</strong> For \(\mu=\mathcal N(a,\Sigma)\), \(\nu=\mathcal N(b,\Sigma)\), any SPD \(\Sigma\):</p>
+          <div class="eq-stage" style="padding:12px 10px;margin:.6em 0;font-size:.82em">$$\frac{W_2^2-\mathrm{SW}_2^2}{W_2^2}=1-\tfrac{1}{d}$$</div>
+          <p><strong>(ii) Anisotropic lower bound.</strong> For any \(\mu=\mathcal N(a,\Sigma_0)\), \(\nu=\mathcal N(b,\Sigma_1)\), letting \(\rho=\|m\|^2/W_2^2\):</p>
+          <div class="eq-stage" style="padding:10px 10px;margin:.6em 0;font-size:.82em">$$\frac{W_2^2-\mathrm{SW}_2^2}{W_2^2}\;\ge\;\Bigl(1-\tfrac{1}{d}\Bigr)\rho$$</div>
+        </div>
+        <p class="muted" style="margin-top:.6em">Answers the "isotropic only" critique — the floor holds for <em>any</em> covariance structure; grows as \(d\to\infty\).</p>
+      </div>
+      <div class="chart-wrap">
+        <svg viewBox="0 0 520 330" role="img" aria-label="sliced deficit tracks 1 minus 1 over d">
+          <g class="gl">
+            <line x1="58" y1="42"  x2="500" y2="42"/>
+            <line x1="58" y1="110" x2="500" y2="110"/>
+            <line x1="58" y1="178" x2="500" y2="178"/>
+            <line x1="58" y1="246" x2="500" y2="246"/>
+            <line x1="58" y1="314" x2="500" y2="314"/>
+          </g>
+          <line class="ax" x1="58" y1="42" x2="58" y2="314"/>
+          <line class="ax" x1="58" y1="314" x2="500" y2="314"/>
+          <g class="tick" text-anchor="end"><text x="50" y="46">1.0</text><text x="50" y="182">0.5</text><text x="50" y="318">0.0</text></g>
+          <g class="tick" text-anchor="middle">
+            <text x="92" y="330">d=2</text><text x="192" y="330">4</text>
+            <text x="310" y="330">8</text><text x="450" y="330">16</text>
+          </g>
+          <text class="axlab" x="20" y="178" transform="rotate(-90 20 178)" text-anchor="middle">relative deficit</text>
+          <!-- theory 1-1/d: d=2→0.50, 4→0.75, 8→0.875, 16→0.9375 -->
+          <!-- y = 314 - v*272; 0.50→178, 0.75→110, 0.875→76, 0.9375→59 -->
+          <polyline points="92,178 192,110 310,76 450,59" fill="none" stroke="#9AA0A6" stroke-width="2" stroke-dasharray="3 4"/>
+          <g fill="#9AA0A6">
+            <circle cx="92" cy="178" r="3.5"/>
+            <circle cx="192" cy="110" r="3.5"/>
+            <circle cx="310" cy="76" r="3.5"/>
+            <circle cx="450" cy="59" r="3.5"/>
+          </g>
+          <!-- measured: 0.54→167, 0.77→104, 0.88→75, 0.95→57 -->
+          <polyline points="92,167 192,104 310,75 450,57" fill="none" stroke="#EA4335" stroke-width="2.4"/>
+          <g fill="none" stroke="#EA4335" stroke-width="2">
+            <path d="M92 167 l7 13 l-14 0 z"/>
+            <path d="M192 104 l7 13 l-14 0 z"/>
+            <path d="M310 75 l7 13 l-14 0 z"/>
+            <path d="M450 57 l7 13 l-14 0 z"/>
+          </g>
+          <!-- legend -->
+          <line x1="290" y1="260" x2="320" y2="260" stroke="#9AA0A6" stroke-width="2" stroke-dasharray="3 4"/>
+          <text class="leg" x="326" y="264">1 &minus; 1/d (theory)</text>
+          <line x1="290" y1="280" x2="320" y2="280" stroke="#EA4335" stroke-width="2.4"/>
+          <text class="leg" x="326" y="284">sliced deficit (measured, 5 seeds)</text>
+        </svg>
+        <div class="cap">Deficit tracks \(1-1/d\) across dimension (common-\(\Sigma\) Gaussians, \(n=3{,}000\)).</div>
+      </div>
+    </div>
+    <div class="take">No matter the covariance — isotropic <em>or</em> anisotropic — <b>sliced OT loses at least \((1-1/d)\) of Wasserstein geometry.</b></div>
+  </div>
+</section>
+
+<!-- ===== 9 · THEOREM 2 ===== -->
+<section class="slide" data-sec="Theorem 2 · Barrier">
+  <div class="body">
+    <h2>Theorem 2 — Certification is <em>hard</em> in general</h2>
+    <div class="grid g2" style="align-items:start;margin-top:clamp(8px,1.6vh,18px)">
+      <div>
+        <div class="thm barrier">
+          <div class="tlabel">Theorem 2 — Ω(n²) barrier</div>
+          <p>In the entry-query model, any (randomized) algorithm that outputs a valid certified gap \(G\le\delta\) (for \(\delta<\tfrac14\)) for every \(C\in[0,1]^{n\times n}\) must make \(\Omega(n^2)\) cost evaluations.</p>
+        </div>
+        <p class="muted" style="margin-top:.8em"><strong>Proof sketch (planted-matching adversary):</strong></p>
+        <ul style="list-style:none;margin-top:.4em">
+          <li style="padding:.2em 0;font-size:clamp(13px,1.35vw,16px);color:var(--text-2)">① Answer every queried entry = 1</li>
+          <li style="padding:.2em 0;font-size:clamp(13px,1.35vw,16px);color:var(--text-2)">② If &lt; \(n^2/16\) queries: Hall's theorem guarantees a permutation \(\sigma\) avoiding all queried cells</li>
+          <li style="padding:.2em 0;font-size:clamp(13px,1.35vw,16px);color:var(--text-2)">③ Plant \(C[i,\sigma(i)]=0\); all others \(=1\) → \(\mathrm{OT}^\star=0\)</li>
+          <li style="padding:.2em 0;font-size:clamp(13px,1.35vw,16px);color:var(--text-2)">④ Algorithm cannot distinguish from "all-ones" → gap uncertified</li>
+        </ul>
+      </div>
+      <div>
+        <div class="card" style="margin-bottom:clamp(10px,1.4vh,16px)">
+          <h3><span class="chip" style="background:var(--green-bg);color:#137333">escape</span> Structured costs</h3>
+          <p>Sliced (\(O(n)\) projections), low-rank (\(O(n)\)), entropic (\(O(n^2)\) but GPU-fast, certified) — exploit structure to escape the lower bound.</p>
+        </div>
+        <div class="card">
+          <h3><span class="chip idea">insight</span> Memory wall (observed)</h3>
+          <p>On an 85 GB A100: float64 OOM at \(n=55{,}000\), float32 OOM at \(n=80{,}000\). Certifying general dense OT is not just hard in theory — it hits the physical memory wall in practice.</p>
+        </div>
+      </div>
+    </div>
+    <div class="take">Certification for <b>general dense costs is provably Ω(n²)</b> — structure (sliced, low-rank, entropic) is not a convenience; it is a <em>necessity</em>.</div>
+  </div>
+</section>
+
+<!-- ===== 10 · ALGORITHM 1 CGC ===== -->
+<section class="slide" data-sec="Algorithm 1 · CGC">
+  <div class="body">
+    <h2>A constructive recipe: the <em>Composed Gap Certificate</em></h2>
+    <p class="lead">Any valid lower-bound oracle plus any valid upper-bound oracle yields a certified bracket — at near-linear cost.</p>
+    <div class="flow" style="margin:clamp(14px,2.8vh,32px) 0">
+      <div class="fnode" style="border-color:var(--g-red)">
+        <div class="ft" style="color:var(--g-red)">\(\mathcal L\) oracle</div>
+        <div class="fd">Sliced · Semi-dual · Neural (margin-corrected)</div>
+      </div>
+      <div class="farrow">+</div>
+      <div class="fnode" style="border-color:var(--grey-500)">
+        <div class="ft" style="color:var(--grey-700)">\(\mathcal U\) oracle</div>
+        <div class="fd">Minibatch · Low-rank · Map rounding</div>
+      </div>
+      <div class="farrow">→</div>
+      <div class="fnode mid">
+        <div class="ft">Certified \([L,U]\)</div>
+        <div class="fd">\(G=U-L\), valid by weak duality</div>
+      </div>
+    </div>
+    <div class="grid g3" style="margin-top:clamp(10px,1.6vh,18px)">
+      <div class="card flat">
+        <h3 style="font-size:clamp(13px,1.4vw,17px)">Cost</h3>
+        <p>\(\mathrm{cost}(\mathcal L)+\mathrm{cost}(\mathcal U)\) — both oracles run independently, near-linear in \(n\).</p>
+      </div>
+      <div class="card flat">
+        <h3 style="font-size:clamp(13px,1.4vw,17px)">Calibration</h3>
+        <p>More projections / larger batch / higher rank → tighter \(G\) at higher cost. Plug-and-play.</p>
+      </div>
+      <div class="card flat">
+        <h3 style="font-size:clamp(13px,1.4vw,17px)">Failure mode</h3>
+        <p>Dimensional deficit (Thm 1) sets a structural floor for \(\mathcal L=\)Sliced. Upgrade to entropic lower bound to escape.</p>
+      </div>
+    </div>
+    <div class="take amber"><b>Composition is the key:</b> two cheap one-sided estimates, run independently, produce a valid two-sided certificate without \(O(n^2)\) dense computation.</div>
+  </div>
+</section>
+
+<!-- ===== 11 · PROXY & DECISION ===== -->
+<section class="slide" data-sec="Proxy &amp; decision">
+  <div class="body">
+    <h2>Gap as the <em>right</em> proxy — and decision tool</h2>
+    <div class="grid g2" style="align-items:start;margin-top:clamp(10px,1.8vh,20px)">
+      <!-- left: proxy validity -->
+      <div>
+        <p class="muted" style="margin-bottom:.6em">Which proxies are <strong>valid</strong> two-sided bounds for \(\mathrm{OT}^\star\)?</p>
+        <svg viewBox="0 0 310 185" style="width:100%;max-width:320px;height:auto;display:block">
+          <!-- axes -->
+          <line x1="54" y1="16" x2="54" y2="155" stroke="var(--grey-300)" stroke-width="1.4"/>
+          <line x1="54" y1="155" x2="296" y2="155" stroke="var(--grey-300)" stroke-width="1.4"/>
+          <!-- y ticks: 0%=155, 50%=85.5, 100%=16 -->
+          <text x="46" y="19" text-anchor="end" font-size="11" fill="var(--grey-500)">100%</text>
+          <text x="46" y="89" text-anchor="end" font-size="11" fill="var(--grey-500)">50%</text>
+          <text x="46" y="158" text-anchor="end" font-size="11" fill="var(--grey-500)">0%</text>
+          <!-- gridlines -->
+          <line x1="54" y1="85" x2="296" y2="85" stroke="var(--grey-200)" stroke-width="1"/>
+          <!-- gap bar 100% -->
+          <rect x="72" y="16" width="70" height="139" fill="var(--g-green)" rx="4" opacity=".85"/>
+          <text x="107" y="11" text-anchor="middle" font-size="12" font-weight="600" fill="var(--g-green)">100%</text>
+          <text x="107" y="170" text-anchor="middle" font-size="11" fill="var(--text-2)">Gap G</text>
+          <!-- sinkdiv bar 79% -->
+          <rect x="180" y="45" width="70" height="110" fill="var(--amber)" rx="4" opacity=".85"/>
+          <text x="215" y="40" text-anchor="middle" font-size="12" font-weight="600" fill="var(--amber)">79%</text>
+          <text x="215" y="170" text-anchor="middle" font-size="11" fill="var(--text-2)">Sinkhorn-div</text>
+          <!-- note -->
+          <text x="162" y="183" text-anchor="middle" font-size="10" fill="var(--grey-500)">fraction of settings where proxy ≤ OT* error</text>
+        </svg>
+        <p class="muted" style="font-size:clamp(11px,1.15vw,13px);margin-top:.4em">Primal / dual excess also correlate (\(\rho\!\ge\!0.93\) Spearman) — but need OT* to compute.</p>
+      </div>
+      <!-- right: decision usefulness -->
+      <div>
+        <p class="muted" style="margin-bottom:.6em">Which rule picks the best \(\varepsilon\) — <strong>without labels</strong>?</p>
+        <table class="cls" style="font-size:clamp(12px,1.3vw,15px)">
+          <thead><tr><th>Selection rule</th><th>MNIST</th><th>scRNA-seq</th></tr></thead>
+          <tbody>
+            <tr class="hl"><td class="tag em-g">gap-tol <span class="chip good" style="font-size:9px">ours</span></td><td style="color:#137333;font-weight:600">0.62</td><td style="color:#137333;font-weight:600">0.95</td></tr>
+            <tr><td class="tag muted">oracle (labels)</td><td>0.62</td><td>0.95</td></tr>
+            <tr><td>fixed \(\varepsilon=0.05\)</td><td>0.58</td><td>0.87</td></tr>
+            <tr><td>obj-elbow</td><td>0.50</td><td>0.74</td></tr>
+            <tr><td>sinkdiv-min</td><td>0.27</td><td>0.50</td></tr>
+          </tbody>
+        </table>
+        <p class="muted" style="font-size:clamp(11px,1.15vw,13px);margin-top:.5em">Downstream accuracy (label transfer) on held-out test sets. Mean over 5 seeds.</p>
+      </div>
+    </div>
+    <div class="take green"><b>Gap is 100% valid</b> as a two-sided bound. <b>Gap-tol matches the label-aware oracle</b> on both tasks — no labels, no tuning, no OT* needed.</div>
+  </div>
+</section>
+
+<!-- ===== 12 · REAL DATA ===== -->
+<section class="slide" data-sec="Real data">
+  <div class="body">
+    <h2>Validation across <em>three domains</em></h2>
+    <p class="lead">The same story on single-cell RNA-seq, image digits, and color palettes.</p>
+    <div class="grid g3" style="margin-top:clamp(14px,2.4vh,26px)">
+      <div class="card">
+        <h3><span class="chip good">scRNA-seq</span> PBMC transport</h3>
+        <p>\(\mathrm{OT}^\star=313\). Composed relgap \(G/U=1.01\) (tight). Gap reflects geometric fidelity; deficit tracks \(1-1/d\) in PCA, diffmap, and raw 1838-gene space.</p>
+      </div>
+      <div class="card">
+        <h3><span class="chip good">image</span> MNIST → USPS</h3>
+        <p>\(\mathrm{OT}^\star=21\). Gap-tol accuracy \(0.62\) (matches oracle). Over-sharpening (\(\varepsilon\!\to\!0\)) degrades by \(-6.6\) pts — gap warns before labels do.</p>
+      </div>
+      <div class="card">
+        <h3><span class="chip good">image</span> Color transfer</h3>
+        <p>\(\mathrm{OT}^\star=1060\). CGC composed relgap \(G/U=0.68\) — loose but valid. Tight Sinkhorn certificate needs 4× the memory.</p>
+      </div>
+    </div>
+    <ul class="grid g2" style="list-style:none;margin-top:clamp(12px,2vh,20px);gap:.5em 2em">
+      <li class="trend"><span class="chip up">✓</span> Gap predicts downstream accuracy on both digit and cell tasks</li>
+      <li class="trend"><span class="chip up">✓</span> Deficit tracks \(1-1/d\) in every embedding space tested</li>
+      <li class="trend"><span class="chip up">✓</span> CGC valid (relgap \(\ge1\)) on all three real datasets</li>
+      <li class="trend"><span class="chip up">✓</span> Over-sharpening detected proactively — no ground truth needed</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ===== 13 · SUMMARY ===== -->
+<section class="slide" data-sec="Summary">
+  <div class="body">
+    <h2>Summary</h2>
+    <p class="lead">We propose a single coordinate — the certified Kantorovich gap \(G=U-L\) — that organizes all approximate OT methods on one scale.</p>
+    <div class="grid g4" style="margin-top:clamp(14px,2.4vh,26px)">
+      <div class="card flat">
+        <h3><span class="chip idea">concept</span></h3>
+        <p><b>\(G=U-L\)</b> as a cross-family, computable fidelity coordinate — without OT*.</p>
+      </div>
+      <div class="card flat">
+        <h3><span class="chip idea">theory</span></h3>
+        <p><b>Thm 1:</b> sliced deficit \(\ge1-1/d\) for any Gaussian family. <b>Thm 2:</b> certifying \(G\le\delta\) costs \(\Omega(n^2)\) in general.</p>
+      </div>
+      <div class="card flat">
+        <h3><span class="chip idea">algorithm</span></h3>
+        <p><b>CGC:</b> compose any \(\mathcal L\) + any \(\mathcal U\) → valid two-sided certificate at near-linear cost.</p>
+      </div>
+      <div class="card flat">
+        <h3><span class="chip idea">evidence</span></h3>
+        <p>Gap <b>100% valid</b>; <b>gap-tol = oracle</b> on both tasks; deficit confirmed in PCA, diffmap, raw gene space.</p>
+      </div>
+    </div>
+    <div class="take amber">The duality gap is the <b>missing coordinate</b> that converts approximate OT from a collection of heuristics into a certifiable, comparable science.</div>
+  </div>
+</section>
+
+<!-- ===== 14 · THANK YOU ===== -->
+<section class="slide">
+  <div class="thanks">
+    <span class="pill" style="margin-bottom:22px">Optimal Transport · Duality principle</span>
+    <h1>Thank you for listening</h1>
+    <p class="lead" style="margin-top:18px;font-size:clamp(16px,2vw,23px)">Questions &amp; discussion welcome.</p>
+    <div class="pres" style="margin-top:clamp(22px,3.6vh,44px)">
+      <div class="avatar">KT</div>
+      <div>
+        <div class="who">Khang Ta</div>
+        <div class="role">AI Institute · Fulbright University Vietnam</div>
+      </div>
+    </div>
+  </div>
+  <div class="byline"><span>A Duality Principle for Optimal Transport — Bridging Geometric and Computational Perspectives</span></div>
+</section>
+
+</div><!-- /deck -->
+
+<div class="nav"><button id="prev" aria-label="Previous">&#8249;</button><button id="next" aria-label="Next">&#8250;</button></div>
+
+<script>
+/* ---- gap rail builder ---- */
+function mk(shape){return '<svg viewBox="0 0 18 18" style="width:18px;height:18px;overflow:visible">'+shape+'</svg>';}
+function buildRail(el){
+  var kind=el.getAttribute('data-rail'); var L=18,S=50,U=82;
+  if(kind==='closed'){L=40;S=50;U=60;}
+  var tri='<path d="M9 2 L16 15 L2 15 Z" fill="none" stroke="var(--g-red)" stroke-width="2"/>';
+  var star='<path d="M9 1l2.2 4.6 5 .7-3.6 3.5.9 5L9 12.9 4.5 14.8l.9-5L1.8 6.3l5-.7z" fill="var(--g-blue)"/>';
+  var sq='<rect x="2" y="2" width="14" height="14" rx="2" fill="var(--g-green)"/>';
+  var h='<div class="axis"></div><div class="axcap">transport cost</div>';
+  h+='<div class="band" style="left:'+L+'%;width:'+(U-L)+'%"></div>';
+  h+='<div class="node L" style="left:'+L+'%">'+mk(tri)+'</div>';
+  h+='<div class="node OT" style="left:'+S+'%">'+mk(star)+'</div>';
+  h+='<div class="node U" style="left:'+U+'%">'+mk(sq)+'</div>';
+  if(kind!=='closed'){
+    h+='<div class="lab L" style="left:'+L+'%">\\(L\\)</div>';
+    h+='<div class="lab OT" style="left:'+S+'%">\\(\\mathrm{OT}^\\star\\)</div>';
+    h+='<div class="lab U" style="left:'+U+'%">\\(U\\)</div>';
+  }
+  h+='<div class="brace" style="left:'+L+'%;width:'+(U-L)+'%"></div>';
+  h+='<div class="gtxt" style="left:'+S+'%">\\(G=U-L\\)</div>';
+  if(kind==='basic'||kind==='title'){
+    h+='<div class="sub L" style="left:'+L+'%">dual lower bound</div>';
+    h+='<div class="sub OT" style="left:'+S+'%">true solution</div>';
+    h+='<div class="sub U" style="left:'+U+'%">primal upper bound</div>';
+  }
+  if(kind==='whyg'){
+    h+='<div class="ann L" style="left:'+((L+S)/2)+'%">dual deficit</div>';
+    h+='<div class="ann U" style="left:'+((S+U)/2)+'%">primal excess</div>';
+    h=h.replace('<div class="gtxt"','<div class="gtxt" hidden ');
+  }
+  if(kind==='decomp'){
+    h+='<div class="ann L" style="left:'+((L+S)/2)+'%">relaxation ↑L</div>';
+    h+='<div class="ann U" style="left:'+((S+U)/2)+'%">restriction ↓U</div>';
+    h=h.replace('<div class="gtxt"','<div class="gtxt" hidden ');
+  }
+  el.innerHTML=h;
+}
+document.querySelectorAll('[data-rail]').forEach(buildRail);
+
+/* ---- chrome ---- */
+var slides=[].slice.call(document.querySelectorAll('.slide')); var N=slides.length;
+slides.forEach(function(s,i){
+  var sec=s.getAttribute('data-sec');
+  if(sec){
+    var t=document.createElement('div'); t.className='top';
+    t.innerHTML='<div class="kick">'+sec+'</div><div class="count">'+String(i+1).padStart(2,'0')+' / '+N+'</div>';
+    s.insertBefore(t,s.firstChild);
+    var f=document.createElement('div'); f.className='foot';
+    f.innerHTML='<span>A Duality Principle for Optimal Transport</span><span>'+String(i+1).padStart(2,'0')+' / '+N+'</span>';
+    s.appendChild(f);
+  }
+});
+
+/* ---- nav ---- */
+var idx=0, prog=document.getElementById('prog');
+function clamp(i){return Math.max(0,Math.min(N-1,i));}
+function syncHash(){try{if(location.hash!=='#'+(idx+1))history.replaceState(null,'','#'+(idx+1));}catch(e){}}
+function readHash(){try{var h=parseInt((location.hash||'').slice(1),10);return isNaN(h)?null:h;}catch(e){return null;}}
+function show(i){idx=clamp(i);slides.forEach(function(s,k){s.classList.toggle('active',k===idx);});prog.style.width=((idx+1)/N*100)+'%';syncHash();}
+function next(){show(idx+1);} function prev(){show(idx-1);}
+document.getElementById('next').onclick=next; document.getElementById('prev').onclick=prev;
+document.querySelectorAll('[data-next]').forEach(function(z){z.onclick=next;});
+document.querySelectorAll('[data-prev]').forEach(function(z){z.onclick=prev;});
+document.addEventListener('keydown',function(e){
+  if(['ArrowRight','PageDown'].includes(e.key)){next();e.preventDefault();}
+  else if(['ArrowLeft','PageUp'].includes(e.key)){prev();e.preventDefault();}
+  else if(e.key===' '){e.shiftKey?prev():next();e.preventDefault();}
+  else if(e.key==='Home'){show(0);} else if(e.key==='End'){show(N-1);}
+  else if(e.key==='f'||e.key==='F'){try{if(!document.fullscreenElement){document.documentElement.requestFullscreen&&document.documentElement.requestFullscreen();}else{document.exitFullscreen&&document.exitFullscreen();}}catch(ex){}}
+});
+var tx=0;
+document.addEventListener('touchstart',function(e){tx=e.changedTouches[0].clientX;},{passive:true});
+document.addEventListener('touchend',function(e){var dx=e.changedTouches[0].clientX-tx;if(Math.abs(dx)>50){dx<0?next():prev();}},{passive:true});
+
+/* ---- math (KaTeX) ---- */
+function renderColoredEq(){
+  var el=document.getElementById('eqG'); if(!el) return;
+  var FB='<span style="font-size:clamp(1.6em,3.4vw,2.4em);font-family:var(--font-display)">'+
+    '<span class="eq-term term-G">G</span> = <span class="eq-term term-U">U</span> &minus; <span class="eq-term term-L">L</span></span>';
+  if(!window.katex){ el.innerHTML=FB; return; }
+  var LATEX="\\htmlClass{eq-term term-G}{G}=\\htmlClass{eq-term term-U}{U}-\\htmlClass{eq-term term-L}{L}";
+  try{katex.render(LATEX,el,{displayMode:true,trust:true,strict:false});}
+  catch(e){el.innerHTML=FB;}
+}
+function renderAll(){
+  renderColoredEq();
+  if(window.renderMathInElement){
+    renderMathInElement(document.body,{
+      delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false},
+                  {left:'\\[',right:'\\]',display:true},{left:'\\(',right:'\\)',display:false}],
+      throwOnError:false,trust:true,macros:{"\\OT":"\\mathrm{OT}"}
+    });
+  }
+  // hover-link colored equation terms with annotation cards
+  var cards=[].slice.call(document.querySelectorAll('#annotG .annot-card'));
+  function hi(term){
+    document.querySelectorAll('#eqG .eq-term').forEach(function(t){t.classList.toggle('active',t.classList.contains('term-'+term));});
+    cards.forEach(function(c){c.classList.toggle('active',c.dataset.term===term);});
+  }
+  function clr(){document.querySelectorAll('#eqG .eq-term').forEach(function(t){t.classList.remove('active');});cards.forEach(function(c){c.classList.remove('active');});}
+  document.querySelectorAll('#eqG .eq-term').forEach(function(t){
+    var m=(t.className.match(/term-(\w+)/)||[])[1]; if(!m)return;
+    t.style.cursor='pointer';
+    t.addEventListener('mouseenter',function(){hi(m);}); t.addEventListener('mouseleave',clr);
+  });
+  cards.forEach(function(c){c.addEventListener('mouseenter',function(){hi(c.dataset.term);});c.addEventListener('mouseleave',clr);});
+}
+window.addEventListener('load',function(){renderAll();var s=readHash()||1;show(s-1);});
+window.addEventListener('hashchange',function(){var h=readHash();if(h)show(h-1);});
+</script>
+</body>
+</html>
