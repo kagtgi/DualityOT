@@ -62,14 +62,17 @@ def _grad(net, y):
     return g
 
 
-def neural_w2(X, Y, W2_ref=None, width=64, depth=2, iters=1500, k_inner=8,
+def neural_w2(X, Y, W2_ref=None, width=128, depth=2, iters=4000, k_inner=10,
               lr=1e-3, use_gpu=True, seed=0):
     """Train the two-ICNN maximin and return an UNCERTIFIED W2^2 estimate.
 
-    Returns dict(est, U_map, time, mem_mb, converged, iters) or None if torch is
-    unavailable / training fails. `est` is the maximin W2^2 estimate; `U_map` is
-    the Brenier-map transport cost (a second uncertified estimate). `converged`
-    is a sanity flag (finite and within a 5x band of W2_ref when provided).
+    The reported `est` is the Brenier-map transport cost E|x - grad f(x)|^2 (a
+    primal, always-non-negative quantity that is numerically far more stable than
+    the raw maximin value, which is reported separately as `est_dual`). Returns
+    dict(est, est_dual, U_map, time, mem_mb, converged, iters, device), or None if
+    torch is unavailable. `converged` is a sanity flag: finite, positive, and
+    within a generous band of W2_ref when provided. Always best-effort -- any
+    failure returns a dict with converged=False rather than raising.
     """
     if not _HAS_TORCH:
         return None
@@ -83,6 +86,9 @@ def neural_w2(X, Y, W2_ref=None, width=64, depth=2, iters=1500, k_inner=8,
         g = ICNN(d, width, depth).to(dev)
         opt_f = torch.optim.Adam(f.parameters(), lr=lr, betas=(0.5, 0.9))
         opt_g = torch.optim.Adam(g.parameters(), lr=lr, betas=(0.5, 0.9))
+        # cosine decay stabilizes the late maximin iterations
+        sch_f = torch.optim.lr_scheduler.CosineAnnealingLR(opt_f, iters)
+        sch_g = torch.optim.lr_scheduler.CosineAnnealingLR(opt_g, iters)
 
         if dev == "cuda":
             torch.cuda.reset_peak_memory_stats()
@@ -101,13 +107,13 @@ def neural_w2(X, Y, W2_ref=None, width=64, depth=2, iters=1500, k_inner=8,
             opt_f.zero_grad(set_to_none=True)       # outer: minimize V over f
             V().backward()
             opt_f.step(); f.clamp()
+            sch_f.step(); sch_g.step()
 
         with torch.no_grad():
             corr_val = float(V().item())
-        # W2^2 = E|x|^2 + E|y|^2 - 2 * max-correlation
         ex2 = float((Xt ** 2).sum(1).mean().item())
         ey2 = float((Yt ** 2).sum(1).mean().item())
-        est = ex2 + ey2 - 2.0 * corr_val
+        est_dual = ex2 + ey2 - 2.0 * corr_val       # maximin W2^2 (can be noisy)
 
         # Brenier map T = grad f : mu -> nu, transport cost E|x - grad f(x)|^2
         Xg = Xt.detach().requires_grad_(True)
@@ -117,12 +123,13 @@ def neural_w2(X, Y, W2_ref=None, width=64, depth=2, iters=1500, k_inner=8,
         dt = time.perf_counter() - t0
         mem_mb = (float(torch.cuda.max_memory_allocated()) / 1e6) if dev == "cuda" else 0.0
 
-        converged = np.isfinite(est) and est > 0
+        est = U_map                                  # stable primal estimate
+        converged = bool(np.isfinite(est) and est > 0)
         if W2_ref is not None and W2_ref > 0:
-            converged = converged and (0.2 <= est / W2_ref <= 5.0)
-        return dict(est=float(est), U_map=float(U_map), time=float(dt),
-                    mem_mb=float(mem_mb), converged=bool(converged), iters=int(iters),
-                    device=dev)
+            converged = converged and (0.5 <= est / W2_ref <= 6.0)
+        return dict(est=float(est), est_dual=float(est_dual), U_map=float(U_map),
+                    time=float(dt), mem_mb=float(mem_mb), converged=converged,
+                    iters=int(iters), device=dev)
     except Exception as e:
         try:
             import torch as _t; _t.cuda.empty_cache()

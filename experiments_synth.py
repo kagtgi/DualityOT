@@ -1,14 +1,17 @@
 """experiments_synth.py -- reproduce the paper's synthetic results on
 closed-form Bures-Wasserstein ground truth. Saves results_synth.json with:
-frontier, gap_geometry, dimension, scaling, hybrid_dim, nongauss.
+frontier, gap_geometry, dimension, scaling, hybrid_dim, nongauss, memory_stress.
 
-Strengthened parameter sweeps (vs. first release):
-  * frontier:    n 1200->2000, eps/proj/mb grids extended
-  * gap_geometry: n 1500->3000, eps swept to 0.0005
-  * dimension:   n 2000->3000, n_proj 200->500
-  * scaling:     Sinkhorn/lowrank to n=32000, sliced to n=100000
-  * hybrid_dim:  n 1200->2000, dims extended to d=32
-  * nongauss:    n 1200->2000
+Round-3 ("strict & harder", tuned for an 80 GB A100):
+  * dimension & hybrid_dim are averaged over SEEDS (mean +/- std) -> error bars,
+    so the 1-1/d law and the composed certificate are reported with variation
+    rather than from a single draw.
+  * frontier n 2000->3000; neural-OT estimate always recorded (added to the
+    frontier only if it converges).
+  * scaling: low-rank capped at n=8000 (iteration-heavy); sliced & minibatch
+    pushed to n=200000.
+  * memory_stress: dual precision (float64 + float32) with a finer grid to pin
+    the OOM wall in each precision.
 """
 import time
 import numpy as np
@@ -16,7 +19,12 @@ import ot
 import otkit as K
 
 
-def _frontier_gaussian(d=5, n=2000, seed=7, fast=False):
+def _mean_std(vals):
+    a = np.asarray(vals, float)
+    return float(a.mean()), float(a.std())
+
+
+def _frontier_gaussian(d=5, n=3000, seed=7, fast=False):
     if fast: n = 800
     pr = K.sample_gaussian_problem(d=d, n=n, seed=seed)
     X, Y = pr["X"], pr["Y"]
@@ -50,19 +58,21 @@ def _frontier_gaussian(d=5, n=2000, seed=7, fast=False):
         if mb > n: continue
         t0 = time.perf_counter(); U = K.minibatch_ub(M, n, m=mb)
         add("Minibatch", "minibatch", U, U, None, False, time.perf_counter() - t0, K.mem_mb(mb * mb))
-    # Neural OT (ICNN, Makkuva): an UNCERTIFIED reference point -- best effort,
-    # never blocks the suite. Where on the frontier does the neural gap sit?
+    # Neural OT (ICNN, Makkuva): an UNCERTIFIED reference -- best effort, never
+    # blocks the suite. Always record the result for inspection; add to the
+    # frontier only when it converges to a sane estimate.
+    neural = None
     try:
         import neural_ot
-        nres = neural_ot.neural_w2(X, Y, W2_ref=W2c, use_gpu=True,
-                                   iters=(400 if fast else 1500))
-        if nres and nres.get("converged"):
-            nmem = nres.get("mem_mb") or K.mem_mb(2 * n * 64)  # tiny ICNN footprint
-            add("Neural (ICNN)", "neural", nres["est"], None, None, False,
-                nres["time"], nmem)
-    except Exception:
-        pass
-    return dict(rows=rows, W2_disc=W2d, W2_cont=W2c)
+        neural = neural_ot.neural_w2(X, Y, W2_ref=W2c, use_gpu=True,
+                                     iters=(600 if fast else 4000))
+        if neural and neural.get("converged"):
+            nmem = neural.get("mem_mb") or K.mem_mb(2 * n * 128)
+            add("Neural (ICNN)", "neural", neural["est"], None, None, False,
+                neural["time"], nmem)
+    except Exception as e:
+        neural = {"error": str(e)[:120], "converged": False}
+    return dict(rows=rows, W2_disc=W2d, W2_cont=W2c, neural=neural)
 
 
 def _gap_geometry(use_gpu=True):
@@ -86,82 +96,98 @@ def _gap_geometry(use_gpu=True):
     return dict(rows=rows, w2_disc=w2d)
 
 
-def _dimension(fast=False):
-    rows = []
+def _dimension(n=3000, n_seeds=5, fast=False):
+    """Dimensional deficit averaged over seeds: report mean +/- std of the sliced
+    relative gap (and the statistical gap) at each dimension, so the 1-1/d law is
+    shown with variation, not from a single draw."""
+    if fast: n, n_seeds = 2000, 2
     dims = [1, 2, 4, 8, 16] if fast else [1, 2, 4, 8, 16, 32, 64, 128]
+    rows = []
     for d in dims:
-        pr = K.sample_gaussian_problem(d=d, n=3000, seed=30 + d)
-        X, Y = pr["X"], pr["Y"]; ad = np.ones(3000) / 3000
-        Md = ot.dist(X, Y, metric="sqeuclidean")
-        w2disc = float(ot.emd2(ad, ad, Md))
-        w2cont = K.bures_w2sq(pr["m0"], pr["C0"], pr["m1"], pr["C1"])
-        # More projections for tighter sliced estimate (esp. in high-d)
-        sw2 = K.sliced_lb(X, Y, n_proj=500)
-        rows.append(dict(d=d, sliced_rel_gap=(w2disc - sw2) / w2disc,
-                         stat_rel_gap=abs(w2disc - w2cont) / w2cont))
-    return dict(rows=rows)
+        sg, st = [], []
+        for s in range(n_seeds):
+            pr = K.sample_gaussian_problem(d=d, n=n, seed=1000 + 100 * d + s)
+            X, Y = pr["X"], pr["Y"]; ad = np.ones(n) / n
+            Md = ot.dist(X, Y, metric="sqeuclidean")
+            w2disc = float(ot.emd2(ad, ad, Md))
+            w2cont = K.bures_w2sq(pr["m0"], pr["C0"], pr["m1"], pr["C1"])
+            sw2 = K.sliced_lb(X, Y, n_proj=500)
+            sg.append((w2disc - sw2) / w2disc)
+            st.append(abs(w2disc - w2cont) / w2cont)
+            del Md
+        sg_m, sg_s = _mean_std(sg); st_m, st_s = _mean_std(st)
+        rows.append(dict(d=d, sliced_rel_gap=sg_m, sliced_rel_gap_std=sg_s,
+                         stat_rel_gap=st_m, stat_rel_gap_std=st_s, n_seeds=n_seeds))
+    return dict(rows=rows, n=n, n_seeds=n_seeds)
 
 
 def _scaling(use_gpu=True, fast=False):
     """Wall-clock scaling by method.
 
-    Sinkhorn and low-rank run on cost matrices up to n=32000; sliced extends
-    further (no cost matrix) to n=100000 to show the near-linear regime.
-    minibatch is included alongside sliced for completeness.
+    Dense methods (exact, Sinkhorn, low-rank) build the n x n cost matrix; sliced
+    and minibatch are point-cloud only and pushed far past it. Low-rank is capped
+    at n=8000 (its factored solver is iteration-heavy); sliced & minibatch run to
+    n=200000 to make the near-linear regime unambiguous.
     """
     out = {"exact": [], "sinkhorn": [], "sliced": [], "lowrank": [], "minibatch": []}
     Nsync = [200, 500, 1000, 2000] if fast \
             else [200, 500, 1000, 2000, 4000, 8000, 16000, 32000]
-    # Extra large-N points for sliced (and minibatch) only -- no O(n^2) cost matrix
-    Ns_sliced_only = [] if fast else [50000, 100000]
+    Ns_light = [] if fast else [50000, 100000, 200000]
 
     for nn in Nsync:
         pr = K.sample_gaussian_problem(d=5, n=nn, seed=99)
         X, Y = pr["X"], pr["Y"]; a = np.ones(nn) / nn; b = np.ones(nn) / nn
         M = ot.dist(X, Y, metric="sqeuclidean")
         if nn <= 4000:
-            t0 = time.perf_counter()
-            ot.emd2(a, b, M)
+            t0 = time.perf_counter(); ot.emd2(a, b, M)
             out["exact"].append(dict(n=nn, time=time.perf_counter() - t0))
         _, _, _, dt = K.sinkhorn_gap(M, a, b, 0.05, use_gpu=use_gpu)
         out["sinkhorn"].append(dict(n=nn, time=dt))
-        t0 = time.perf_counter()
-        K.sliced_lb(X, Y, n_proj=200)
+        t0 = time.perf_counter(); K.sliced_lb(X, Y, n_proj=200)
         out["sliced"].append(dict(n=nn, time=time.perf_counter() - t0))
-        if nn <= 16000:
-            t0 = time.perf_counter()
-            K.lowrank_ub(X, Y, a, b, 20, M)
+        if nn <= 8000:   # low-rank factored solver is iteration-heavy past this
+            t0 = time.perf_counter(); K.lowrank_ub(X, Y, a, b, 20, M)
             out["lowrank"].append(dict(n=nn, time=time.perf_counter() - t0))
-        t0 = time.perf_counter()
-        K.minibatch_ub(M, nn, m=256)
+        t0 = time.perf_counter(); K.minibatch_ub(M, nn, m=256)
         out["minibatch"].append(dict(n=nn, time=time.perf_counter() - t0))
         del M
 
-    # Sliced + minibatch at very large N (no cost matrix required)
-    for nn in Ns_sliced_only:
+    # sliced + minibatch at very large N (point-cloud only, no cost matrix)
+    for nn in Ns_light:
         pr = K.sample_gaussian_problem(d=5, n=nn, seed=99)
         X, Y = pr["X"], pr["Y"]
-        t0 = time.perf_counter()
-        K.sliced_lb(X, Y, n_proj=200)
+        t0 = time.perf_counter(); K.sliced_lb(X, Y, n_proj=200)
         out["sliced"].append(dict(n=nn, time=time.perf_counter() - t0))
+        t0 = time.perf_counter(); K.minibatch_ub_xy(X, Y, m=256)
+        out["minibatch"].append(dict(n=nn, time=time.perf_counter() - t0))
     return out
 
 
-def _hybrid_dim(use_gpu=True, fast=False):
-    rows = []
-    n = 700 if fast else 2000
+def _hybrid_dim(n=2000, n_seeds=5, use_gpu=True, fast=False):
+    """Composed-certificate tightness vs dimension, averaged over seeds."""
+    if fast: n, n_seeds = 700, 2
     dims = [1, 2, 8] if fast else [1, 2, 4, 8, 16, 32]
+    rows = []
     for d in dims:
-        pr = K.sample_gaussian_problem(d=d, n=n, seed=11)
-        X, Y = pr["X"], pr["Y"]; a = np.ones(n) / n; b = np.ones(n) / n
-        M = ot.dist(X, Y, metric="sqeuclidean")
-        OTstar = float(ot.emd2(a, b, M, numItermax=500000))
-        L = K.sliced_lb(X, Y, n_proj=200); U = K.minibatch_ub(M, n, m=256)
-        _, Ue, Le, _ = K.sinkhorn_gap(M, a, b, 0.02, use_gpu=use_gpu)
-        rows.append(dict(d=d, OTstar=OTstar, relgap_hyb=(U - L) / OTstar,
-                         dual_deficit=(OTstar - L) / OTstar, primal_excess=(U - OTstar) / OTstar,
-                         relgap_ent=(Ue - Le) / OTstar))
-    return dict(rows=rows)
+        hyb, dd, pe, ent, ot_ = [], [], [], [], []
+        for s in range(n_seeds):
+            pr = K.sample_gaussian_problem(d=d, n=n, seed=500 + 100 * d + s)
+            X, Y = pr["X"], pr["Y"]; a = np.ones(n) / n; b = np.ones(n) / n
+            M = ot.dist(X, Y, metric="sqeuclidean")
+            OTstar = float(ot.emd2(a, b, M, numItermax=500000))
+            L = K.sliced_lb(X, Y, n_proj=200); U = K.minibatch_ub(M, n, m=256)
+            _, Ue, Le, _ = K.sinkhorn_gap(M, a, b, 0.02, use_gpu=use_gpu)
+            hyb.append((U - L) / OTstar); dd.append((OTstar - L) / OTstar)
+            pe.append((U - OTstar) / OTstar); ent.append((Ue - Le) / OTstar)
+            ot_.append(OTstar); del M
+        hm, hs = _mean_std(hyb); dm, ds = _mean_std(dd)
+        pm, ps = _mean_std(pe); em, es = _mean_std(ent)
+        rows.append(dict(d=d, OTstar=float(np.mean(ot_)),
+                         relgap_hyb=hm, relgap_hyb_std=hs,
+                         dual_deficit=dm, dual_deficit_std=ds,
+                         primal_excess=pm, relgap_ent=em, relgap_ent_std=es,
+                         n_seeds=n_seeds))
+    return dict(rows=rows, n=n, n_seeds=n_seeds)
 
 
 def _two_moons(n, seed, rot=0.0, shift=(0.0, 0.0), noise=0.08):
@@ -183,34 +209,38 @@ def _nongauss():
 
 
 def _memory_stress(use_gpu=True, fast=False):
-    """The OOM wall: find where dense (certifiable) Sinkhorn runs out of GPU
-    memory, and show one-sided surrogates reaching n=1e6 on the same device."""
+    """The OOM wall in BOTH precisions: where dense (certifiable) Sinkhorn runs
+    out of GPU memory in float64 and float32, and one-sided surrogates reaching
+    n=1e6 on the same device."""
     if fast:
-        dense = (8000, 16000, 24000)
-        light = (10000, 50000, 100000)
-    else:
-        dense = (20000, 30000, 40000, 50000, 64000, 80000)
-        light = (10000, 50000, 100000, 300000, 1000000)
-    return K.memory_stress_test(dense_Ns=dense, light_Ns=light, use_gpu=use_gpu)
+        return K.memory_stress_test(dense_Ns=(8000, 16000, 24000),
+                                    light_Ns=(10000, 50000, 100000),
+                                    dtypes=("float64",), use_gpu=use_gpu)
+    return K.memory_stress_test(use_gpu=use_gpu)  # full dual-precision defaults
 
 
-def run_synth(log=print, fast=False, use_gpu=True):
+def run_synth(log=print, fast=False, use_gpu=True, n_seeds=5):
+    if fast: n_seeds = 2
     OUT = {}
-    log("[synth A] Gaussian fidelity-cost frontier (d=5, n=2000)...")
+    log(f"[synth A] Gaussian fidelity-cost frontier (d=5, n=3000)...")
     OUT["frontier"] = _frontier_gaussian(fast=fast)
+    nstat = OUT["frontier"].get("neural") or {}
+    log(f"   neural-OT: converged={nstat.get('converged')} "
+        f"est={nstat.get('est')} (ref W2c={OUT['frontier']['W2_cont']:.3f})")
     log("[synth B] certified gap vs geodesic distortion (d=2, n=3000)...")
     OUT["gap_geometry"] = _gap_geometry(use_gpu=use_gpu)
-    log("[synth C] dimensional deficit (d=1..128, n=3000 per dim)...")
-    OUT["dimension"] = _dimension(fast=fast)
-    log("[synth D] cost of certifiability scaling (Sinkhorn to n=32k, sliced to n=100k)...")
+    log(f"[synth C] dimensional deficit (d=1..128, n=3000, {n_seeds} seeds)...")
+    OUT["dimension"] = _dimension(n_seeds=n_seeds, fast=fast)
+    log("[synth D] cost of certifiability scaling (Sinkhorn n=32k; sliced/minibatch n=200k)...")
     OUT["scaling"] = _scaling(use_gpu=use_gpu, fast=fast)
-    log("[synth E] composed certificate vs dimension (n=2000)...")
-    OUT["hybrid_dim"] = _hybrid_dim(use_gpu=use_gpu, fast=fast)
+    log(f"[synth E] composed certificate vs dimension (n=2000, {n_seeds} seeds)...")
+    OUT["hybrid_dim"] = _hybrid_dim(n_seeds=n_seeds, use_gpu=use_gpu, fast=fast)
     log("[synth F] non-Gaussian (two-moons) frontier (n=2000)...")
     OUT["nongauss"] = _nongauss()
-    log("[synth G] memory/OOM stress test (dense wall vs one-sided to n=1e6)...")
+    log("[synth G] memory/OOM stress test (float64 & float32 walls; one-sided to n=1e6)...")
     OUT["memory_stress"] = _memory_stress(use_gpu=use_gpu, fast=fast)
-    ms = OUT["memory_stress"]
-    log(f"   dense OOM at n={ms.get('oom_at')}, GPU={ms.get('gpu_total_gb')} GB; "
-        f"one-sided reached n={ms['light'][-1].get('n') if ms.get('light') else 'NA'}")
+    ms = OUT["memory_stress"]; oom = ms.get("oom_at", {})
+    log(f"   OOM walls: float64 n={oom.get('float64')}, float32 n={oom.get('float32')}; "
+        f"GPU={ms.get('gpu_total_gb')} GB; one-sided reached "
+        f"n={ms['light'][-1].get('n') if ms.get('light') else 'NA'}")
     return OUT

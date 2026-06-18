@@ -200,92 +200,94 @@ def _gpu_total_gb():
 
 
 def memory_stress_test(d=5, shift=2.0,
-                       dense_Ns=(20000, 30000, 40000, 50000, 64000, 80000),
+                       dense_Ns=(20000, 30000, 40000, 50000, 55000, 64000,
+                                 80000, 100000, 120000),
                        light_Ns=(10000, 50000, 100000, 300000, 1000000),
+                       dtypes=("float64", "float32"),
                        eps_rel=0.05, n_proj=100, mb=256, seed=99,
                        use_gpu=True, numItermax=1000):
-    """Locate the dense-method OOM wall, and show one-sided methods scale past it.
+    """Locate the dense-method OOM wall in BOTH precisions, and show one-sided
+    methods scale past it.
 
-    DENSE path (the certifiable two-sided route): for each n we build the n x n
-    squared-Euclidean cost matrix *on the GPU* (float64) and run one log-domain
-    Sinkhorn solve, recording wall-clock and peak GPU memory -- or, when the
-    allocation exceeds VRAM, we catch the out-of-memory error and stop, recording
-    the wall at that n. This makes the paper's Omega(n^2) memory claim concrete on
-    a specific device.
+    DENSE path (the certifiable two-sided route): for each precision and each n we
+    build the n x n squared-Euclidean cost matrix *on the GPU* and run one
+    log-domain Sinkhorn solve, recording wall-clock and peak GPU memory -- or, when
+    the allocation exceeds VRAM, we catch the out-of-memory error and stop,
+    recording the wall at that n. Running float64 (certification-grade) and float32
+    shows the wall is fundamental: halving the bytes only buys ~sqrt(2) in n.
 
     LIGHT path (one-sided surrogates): sliced (point-cloud, no matrix) and
     minibatch (only m x m matrices) are run out to n = 1e6, where the dense path
     is many terabytes. Their peak memory is O(n d) and O(m^2) respectively.
 
-    Returns dict(dense=[...], light=[...], oom_at=int|None, gpu_total_gb=float|None,
-                 dtype, device). Everything is wrapped so a failure never crashes
-    the caller -- the worst case is a short or empty dense sweep on CPU-only hosts.
+    Returns dict(dense={dtype: [...]}, oom_at={dtype: int|None}, light=[...],
+                 gpu_total_gb, device, bytes={dtype:int}). Everything is wrapped so
+    a failure never crashes the caller.
     """
-    out = {"dense": [], "light": [], "oom_at": None,
+    out = {"dense": {}, "oom_at": {}, "light": [],
            "gpu_total_gb": _gpu_total_gb(),
-           "dtype": "float64",
-           "device": "cuda" if (use_gpu and _HAS_CUDA) else "cpu"}
+           "device": "cuda" if (use_gpu and _HAS_CUDA) else "cpu",
+           "bytes": {"float64": 8, "float32": 4}}
     rng = np.random.default_rng(seed)
     have_cuda = bool(use_gpu and _HAS_CUDA)
     OOM = RuntimeError
     if _HAS_TORCH:
         OOM = getattr(getattr(torch, "cuda", None), "OutOfMemoryError", RuntimeError)
+        torch_dtype = {"float64": torch.float64, "float32": torch.float32}
 
-    # ---- dense sweep ----
-    for N in dense_Ns:
-        rec = dict(n=int(N), ok=False, time=None, mem_gb=None)
-        try:
-            if have_cuda:
-                torch.cuda.empty_cache()
-                torch.cuda.reset_peak_memory_stats()
-                Xt = torch.as_tensor(rng.standard_normal((N, d)), dtype=torch.float64, device="cuda")
-                Yt = torch.as_tensor(rng.standard_normal((N, d)) + shift, dtype=torch.float64, device="cuda")
-                at = torch.full((N,), 1.0 / N, dtype=torch.float64, device="cuda")
-                bt = at.clone()
-                torch.cuda.synchronize(); t0 = time.perf_counter()
-                Mt = torch.cdist(Xt, Yt) ** 2
-                reg = eps_rel * float(Mt.max())
-                ot.sinkhorn(at, bt, Mt, reg, method=SINKHORN_METHOD, log=True,
-                            numItermax=numItermax, stopThr=1e-7)
-                torch.cuda.synchronize(); dt = time.perf_counter() - t0
-                rec["time"] = dt
-                rec["mem_gb"] = float(torch.cuda.max_memory_allocated()) / 1e9
-                rec["ok"] = True
-                del Mt, Xt, Yt, at, bt; torch.cuda.empty_cache()
-            else:
-                # CPU-only host: keep allocations modest so we never wedge the box
-                if N > 8000:
-                    rec["error"] = "skipped on CPU (needs GPU for the real wall)"
-                    out["dense"].append(rec); continue
+    if not have_cuda:
+        # CPU-only host: a single small float64 sweep so the figure still has data,
+        # without wedging the machine on a huge dense matrix.
+        out["dense"]["float64"] = []; out["oom_at"]["float64"] = None
+        for N in [n for n in dense_Ns if n <= 6000]:
+            rec = dict(n=int(N), ok=False)
+            try:
                 pr = sample_gaussian_problem(d=d, n=N, seed=seed, shift=shift)
-                M = cost_matrix(pr["X"], pr["Y"]); a = np.ones(N) / N; b = a
+                M = cost_matrix(pr["X"], pr["Y"]); a = np.ones(N) / N
                 t0 = time.perf_counter()
-                sinkhorn_gap(M, a, b, eps_rel, use_gpu=False, numItermax=numItermax)
-                rec["time"] = time.perf_counter() - t0
-                rec["mem_gb"] = mem_mb(2 * N * N) / 1e3
-                rec["ok"] = True
-                del M
-        except OOM as e:                       # GPU out of memory
-            rec["error"] = "OOM"
-            out["oom_at"] = out["oom_at"] or int(N)
-            try: torch.cuda.empty_cache()
-            except Exception: pass
-        except (RuntimeError, MemoryError) as e:
-            msg = str(e).lower()
-            rec["error"] = "OOM" if "out of memory" in msg or "alloc" in msg else str(e)[:90]
-            if "out of memory" in msg or isinstance(e, MemoryError):
-                out["oom_at"] = out["oom_at"] or int(N)
-            try: torch.cuda.empty_cache()
-            except Exception: pass
-        out["dense"].append(rec)
-        if not rec["ok"]:
-            break  # first failure = the wall; larger n only fails harder
+                sinkhorn_gap(M, a, a, eps_rel, use_gpu=False, numItermax=numItermax)
+                rec.update(time=time.perf_counter() - t0,
+                           mem_gb=mem_mb(2 * N * N) / 1e3, ok=True); del M
+            except (RuntimeError, MemoryError) as e:
+                rec["error"] = str(e)[:80]
+            out["dense"]["float64"].append(rec)
+    else:
+        for dt_name in dtypes:
+            dt = torch_dtype[dt_name]
+            out["dense"][dt_name] = []; out["oom_at"][dt_name] = None
+            for N in dense_Ns:
+                rec = dict(n=int(N), ok=False, time=None, mem_gb=None)
+                try:
+                    torch.cuda.empty_cache(); torch.cuda.reset_peak_memory_stats()
+                    Xt = torch.as_tensor(rng.standard_normal((N, d)), dtype=dt, device="cuda")
+                    Yt = torch.as_tensor(rng.standard_normal((N, d)) + shift, dtype=dt, device="cuda")
+                    at = torch.full((N,), 1.0 / N, dtype=dt, device="cuda"); bt = at.clone()
+                    torch.cuda.synchronize(); t0 = time.perf_counter()
+                    Mt = torch.cdist(Xt, Yt) ** 2
+                    reg = eps_rel * float(Mt.max())
+                    ot.sinkhorn(at, bt, Mt, reg, method=SINKHORN_METHOD, log=True,
+                                numItermax=numItermax, stopThr=1e-7)
+                    torch.cuda.synchronize(); dt_t = time.perf_counter() - t0
+                    rec.update(time=dt_t,
+                               mem_gb=float(torch.cuda.max_memory_allocated()) / 1e9,
+                               ok=True)
+                    del Mt, Xt, Yt, at, bt; torch.cuda.empty_cache()
+                except (OOM, RuntimeError, MemoryError) as e:
+                    msg = str(e).lower()
+                    rec["error"] = "OOM" if ("out of memory" in msg or "alloc" in msg
+                                             or isinstance(e, (OOM, MemoryError))) else str(e)[:90]
+                    if out["oom_at"][dt_name] is None:
+                        out["oom_at"][dt_name] = int(N)
+                    try: torch.cuda.empty_cache()
+                    except Exception: pass
+                out["dense"][dt_name].append(rec)
+                if not rec["ok"]:
+                    break  # first failure = the wall; larger n only fails harder
 
     # ---- light sweep (one-sided, point-cloud only) ----
     for N in light_Ns:
         try:
-            X = rng.standard_normal((N, d))
-            Y = rng.standard_normal((N, d)) + shift
+            X = rng.standard_normal((N, d)); Y = rng.standard_normal((N, d)) + shift
             lp = n_proj if N <= 100000 else max(20, n_proj // 2)  # trim projections at 1e6
             t0 = time.perf_counter(); sw = sliced_lb(X, Y, n_proj=lp)
             t_sl = time.perf_counter() - t0
@@ -293,12 +295,10 @@ def memory_stress_test(d=5, shift=2.0,
             t_mb = time.perf_counter() - t0
             out["light"].append(dict(n=int(N), sliced=sw, minibatch=U,
                                      sliced_time=t_sl, minibatch_time=t_mb,
-                                     # point clouds (2) + projections buffer
                                      mem_gb=float((2 * N * d + N * lp) * 8) / 1e9))
             del X, Y
         except (RuntimeError, MemoryError) as e:
-            out["light"].append(dict(n=int(N), error=str(e)[:90]))
-            break
+            out["light"].append(dict(n=int(N), error=str(e)[:90])); break
     return out
 
 

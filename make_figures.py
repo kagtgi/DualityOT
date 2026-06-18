@@ -167,7 +167,9 @@ def fig3_diagnostics(synth, outdir):
     ax.set_xscale("log"); ax.set_yscale("log"); ax.set_xlabel(r"certified gap $G$", color=C_GAPTX, fontproperties=FP_MED); ax.set_ylabel("geodesic distortion", color=GREY9, fontproperties=FP_REG)
     ax.set_title("(a) gap tracks geometry", color=GREY9, fontproperties=FP_MED, fontsize=8.7); style_ax(ax)
     dd = synth["dimension"]["rows"]; ds = np.array([r["d"] for r in dd]); sg = np.array([r["sliced_rel_gap"] for r in dd]); st = np.array([r["stat_rel_gap"] for r in dd])
+    sgs = np.array([r.get("sliced_rel_gap_std", 0.0) for r in dd])
     ax = axes[1]; dgrid = np.array([1, 2, 4, 8, 16, 32, 64, 128.]); ax.plot(dgrid, 1 - 1 / dgrid, "--", color=GREY5, lw=1.1, label=r"$1-1/d$ (Prop. 2)")
+    if np.any(sgs > 0): ax.fill_between(ds, sg - sgs, sg + sgs, color=C_SLICE, alpha=0.18, lw=0, zorder=1)
     mk(ax, ds, sg, "sliced", label="sliced gap", ms=5.0); ax.plot(ds, st, "o:", color=GREY7, mfc="white", mec=GREY7, mew=1.2, ms=4.2, lw=1.1, label="stat. gap")
     ax.set_xscale("log", base=2); ax.set_xlabel(r"dimension $d$", color=GREY9, fontproperties=FP_REG); ax.set_ylabel("relative gap", color=GREY9, fontproperties=FP_REG); ax.set_ylim(-0.03, 1.05)
     ax.set_title("(b) dimension widens the gap", color=GREY9, fontproperties=FP_MED, fontsize=8.7); _leg(ax, loc="lower right", handlelength=1.7, fontsize=6.5); style_ax(ax)
@@ -189,10 +191,14 @@ def fig3_diagnostics(synth, outdir):
 def fig4_hybrid(synth, outdir):
     fig, axes = plt.subplots(1, 2, figsize=(7.0, 2.7))
     rows = synth["hybrid_dim"]["rows"]; d = np.array([r["d"] for r in rows], float)
+    hyb = np.array([r["relgap_hyb"] for r in rows]); hyb_s = np.array([r.get("relgap_hyb_std", 0.0) for r in rows])
+    ent = np.array([r["relgap_ent"] for r in rows]); ent_s = np.array([r.get("relgap_ent_std", 0.0) for r in rows])
     ax = axes[0]; ax.plot(d, 1 - 1 / d, ":", color=GREY5, lw=1.1, label=r"$1-1/d$ (Prop. 2)")
-    ax.plot(d, [r["relgap_hyb"] for r in rows], "D-", color=C_GAP, mfc=C_GAP, mec=C_GAP, ms=5.2, lw=1.6, label="hybrid $U\\!-\\!L$ (near-lin.)")
+    if np.any(hyb_s > 0): ax.fill_between(d, hyb - hyb_s, hyb + hyb_s, color=C_GAP, alpha=0.18, lw=0, zorder=1)
+    if np.any(ent_s > 0): ax.fill_between(d, ent - ent_s, ent + ent_s, color=C_SINK, alpha=0.15, lw=0, zorder=1)
+    ax.plot(d, hyb, "D-", color=C_GAP, mfc=C_GAP, mec=C_GAP, ms=5.2, lw=1.6, label="hybrid $U\\!-\\!L$ (near-lin.)")
     ax.plot(d, [r["dual_deficit"] for r in rows], "^--", color=C_SLICE, mfc="white", mec=C_SLICE, mew=1.2, ms=4.6, lw=1.1, label="dual deficit (sliced)")
-    ax.plot(d, [r["relgap_ent"] for r in rows], "o-", color=C_SINK, mfc=C_SINK, mec=C_SINK, ms=4.6, lw=1.3, label="entropic $U\\!-\\!L$ ($O(n^2)$)")
+    ax.plot(d, ent, "o-", color=C_SINK, mfc=C_SINK, mec=C_SINK, ms=4.6, lw=1.3, label="entropic $U\\!-\\!L$ ($O(n^2)$)")
     ax.set_xscale("log", base=2); ax.set_xlabel(r"dimension $d$", color=GREY9, fontproperties=FP_REG); ax.set_ylabel("relative certified gap", color=C_GAPTX, fontproperties=FP_MED); ax.set_ylim(-0.04, 1.12)
     ax.set_title("(a) cheap certificates by composition", color=GREY9, fontproperties=FP_MED, fontsize=8.5); _leg(ax, loc="lower right", handlelength=1.7, fontsize=6.2); style_ax(ax)
     ng = synth["nongauss"]; ax = axes[1]; _frontier_panel(ax, ng["rows"], "rel_err", hybrid=ng["hybrid"])
@@ -233,44 +239,58 @@ def fig_composed_schematic(outdir):
 
 
 def fig_memory_scaling(synth, outdir):
-    """The OOM wall: dense (certifiable) memory grows as O(n^2) and hits the GPU
-    VRAM ceiling, while one-sided surrogates stay flat out to n=1e6."""
+    """The OOM wall in two precisions: dense (certifiable) memory grows as O(n^2)
+    and hits the GPU VRAM ceiling (float64 first, float32 ~sqrt(2) later), while
+    one-sided surrogates stay flat out to n=1e6."""
     ms = synth.get("memory_stress")
     if not ms: return
-    fig, ax = plt.subplots(figsize=(3.5, 2.8))
-    # theoretical dense requirement: one n x n float64 matrix = 8 n^2 bytes
-    ng = np.logspace(4, 6, 60)
-    ax.plot(ng, 8.0 * ng ** 2 / 1e9, "--", color=C_SINK, lw=1.2,
-            label=r"dense $O(n^2)$ need")
-    # measured dense points that fit in memory
-    dok = [r for r in ms.get("dense", []) if r.get("ok") and r.get("mem_gb")]
-    if dok:
-        ax.plot([r["n"] for r in dok], [r["mem_gb"] for r in dok], "o-",
-                color=C_SINK, mfc=C_SINK, mec=C_SINK, ms=5, lw=1.3,
-                label="Sinkhorn (measured)")
-    # VRAM capacity line + OOM marker
+    dense = ms.get("dense", {})
+    # backward-compat: a plain list means single-precision float64
+    if isinstance(dense, list):
+        dense = {"float64": dense}
+        oom_at = {"float64": ms.get("oom_at")}
+    else:
+        oom_at = ms.get("oom_at", {})
+    nbytes = ms.get("bytes", {"float64": 8, "float32": 4})
+    dt_style = {"float64": (C_SINK, "o", "-", "float64 (certified)"),
+                "float32": (C_MINI, "s", "--", "float32")}
     cap = ms.get("gpu_total_gb")
+    fig, ax = plt.subplots(figsize=(3.6, 2.9))
+    ng = np.logspace(4, 6, 60)
+    for dt_name, rows in dense.items():
+        col, mk_, ls, lab = dt_style.get(dt_name, (C_SINK, "o", "-", dt_name))
+        bpe = nbytes.get(dt_name, 8)
+        ax.plot(ng, bpe * ng ** 2 / 1e9, ls, color=col, lw=1.0, alpha=0.45)
+        dok = [r for r in rows if r.get("ok") and r.get("mem_gb")]
+        if dok:
+            ax.plot([r["n"] for r in dok], [r["mem_gb"] for r in dok], marker=mk_,
+                    color=col, mfc=col, mec=col, ms=5, lw=1.3, label="Sinkhorn " + lab)
+        wall = oom_at.get(dt_name) if isinstance(oom_at, dict) else None
+        if wall:
+            yk = cap if cap else bpe * wall ** 2 / 1e9
+            ax.plot([wall], [yk], "X", ms=10, mfc=C_SLICE, mec="white", mew=1.0, zorder=6)
+            ax.annotate(f"OOM {dt_name[-2:]}\nn={wall/1000:.0f}k", xy=(wall, yk),
+                        xytext=(wall * 1.15, yk * 2.2), fontsize=5.8, color=C_SLICE,
+                        fontproperties=FP_REG, zorder=7)
     if cap:
         ax.axhline(cap, color=GREY7, ls=":", lw=1.1)
-        ax.text(1.1e4, cap * 1.05, f"GPU VRAM {cap:.0f} GB", fontsize=6.4,
+        ax.text(1.1e4, cap * 1.1, f"GPU VRAM {cap:.0f} GB", fontsize=6.3,
                 color=GREY7, fontproperties=FP_REG)
-    if ms.get("oom_at"):
-        yk = cap if cap else 8.0 * ms["oom_at"] ** 2 / 1e9
-        ax.plot([ms["oom_at"]], [yk], "X", ms=11, mfc=C_SLICE, mec="white",
-                mew=1.0, zorder=6, label=f"OOM @ n={ms['oom_at']:,}")
-    # one-sided surrogates: tiny, flat
-    light = ms.get("light", [])
-    lok = [r for r in light if r.get("mem_gb")]
+    lok = [r for r in ms.get("light", []) if r.get("mem_gb")]
     if lok:
         ax.plot([r["n"] for r in lok], [r["mem_gb"] for r in lok], "^-",
                 color=C_SLICE, mfc="white", mec=C_SLICE, mew=1.2, ms=5, lw=1.3,
                 label="sliced / minibatch")
-    ax.set_xscale("log"); ax.set_yscale("log")
+    ax.set_xscale("log"); ax.set_yscale("log"); ax.set_ylim(top=3e4)
     ax.set_xlabel(r"sample size $n$", color=GREY9, fontproperties=FP_REG)
     ax.set_ylabel("peak memory (GB)", color=GREY9, fontproperties=FP_REG)
     ax.set_title("Memory wall: certifiable vs one-sided", color=GREY9,
                  fontproperties=FP_MED, fontsize=9)
-    _leg(ax, loc="lower right", handlelength=1.6, fontsize=6.0); style_ax(ax)
+    leg = ax.legend(loc="lower right", frameon=True, facecolor="white",
+                    edgecolor="#DADCE0", framealpha=0.95, borderpad=0.4,
+                    handlelength=1.4, fontsize=6.0)
+    for t in leg.get_texts(): t.set_fontproperties(FP_REG); t.set_color(GREY9)
+    style_ax(ax)
     fig.tight_layout(pad=0.4); _save(fig, outdir, "fig_memory_scaling")
 
 
@@ -353,9 +373,15 @@ def real_dimension(real, outdir):
 
 
 def _gap_acc_panel(ax, res, title):
-    """One gap-vs-accuracy panel from a da_gap_vs_accuracy result dict."""
+    """One gap-vs-accuracy panel from a da_gap_vs_accuracy result dict.
+    Draws error bars when the result carries per-eps std (multi-seed)."""
     rows = [r for r in res["rows"] if r["method"] == "sinkhorn"]
     g = np.array([r["relgap"] for r in rows]); acc = np.array([r["acc"] for r in rows])
+    gs = np.array([r.get("relgap_std", 0.0) for r in rows])
+    accs = np.array([r.get("acc_std", 0.0) for r in rows])
+    if np.any(gs > 0) or np.any(accs > 0):
+        ax.errorbar(g, acc, xerr=gs, yerr=accs, fmt="none", ecolor=GREY5,
+                    elinewidth=0.8, capsize=2, zorder=2)
     ax.scatter(g, acc, c=np.log10([r["eps"] for r in rows]), cmap="Blues_r",
                s=46, edgecolor=C_SINK, linewidth=1.0, zorder=3)
     o = np.argsort(g); ax.plot(g[o], acc[o], "-", color=C_SINK, lw=1.2, zorder=2)

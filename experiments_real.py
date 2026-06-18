@@ -52,7 +52,37 @@ def da_gap_vs_accuracy(Xs, ys, Xt, yt, N=2000, seed=0, use_gpu=True,
     return dict(OTstar=OTstar, ns=ns, nt=nt, rows=rows)
 
 
-def run_real(log=print, fast=False, use_gpu=True):
+def da_gap_vs_accuracy_multiseed(Xs, ys, Xt, yt, N=2000, seeds=(0, 1, 2, 3, 4),
+                                 use_gpu=True, eps_list=(0.5, 0.2, 0.1, 0.05, 0.02, 0.01, 0.005),
+                                 log=print):
+    """Run da_gap_vs_accuracy over several seeds and aggregate per-eps mean/std of
+    the certified gap and the transfer accuracy (and the exact-OT accuracy), so
+    the downstream curves carry error bands rather than a single draw."""
+    per_eps = {er: {"relgap": [], "acc": []} for er in eps_list}
+    exact_acc = []; otstar = []
+    for s in seeds:
+        r = da_gap_vs_accuracy(Xs, ys, Xt, yt, N=N, seed=s, use_gpu=use_gpu,
+                               eps_list=eps_list, log=(lambda *a: None))
+        otstar.append(r["OTstar"])
+        for row in r["rows"]:
+            if row["method"] == "exact":
+                exact_acc.append(row["acc"])
+            else:
+                per_eps[row["eps"]]["relgap"].append(row["relgap"])
+                per_eps[row["eps"]]["acc"].append(row["acc"])
+    rows = [dict(method="exact", eps=None, gap=0.0, relgap=0.0,
+                 acc=float(np.mean(exact_acc)), acc_std=float(np.std(exact_acc)))]
+    for er in eps_list:
+        rg = np.asarray(per_eps[er]["relgap"]); ac = np.asarray(per_eps[er]["acc"])
+        rows.append(dict(method="sinkhorn", eps=er,
+                         relgap=float(rg.mean()), relgap_std=float(rg.std()),
+                         acc=float(ac.mean()), acc_std=float(ac.std())))
+        log(f"   eps={er:<6} relgap={rg.mean():.3f}+/-{rg.std():.3f} "
+            f"acc={ac.mean():.3f}+/-{ac.std():.3f}")
+    return dict(OTstar=float(np.mean(otstar)), rows=rows, n_seeds=len(seeds))
+
+
+def run_real(log=print, fast=False, use_gpu=True, n_seeds=5):
     out = {"gpu": otkit.gpu_info(), "datasets": {}}
     Nfr  = 600  if fast else 2000   # frontier sample size (strengthened 1500->2000)
     dims = (2, 5, 10, 20) if fast else (2, 5, 10, 20, 30, 50)  # add d=30
@@ -137,24 +167,26 @@ def run_real(log=print, fast=False, use_gpu=True):
                                        Ns=(200, 400, 800), lp_max_n=800, use_gpu=use_gpu)
         out["scaling_meta"] = "sklearn digits (fallback)"
 
-    # ---- gap predicts downstream accuracy (MNIST -> USPS) ----
-    log("\n=== REAL DOWNSTREAM: gap vs label-transfer accuracy (MNIST->USPS) ===")
+    seeds = tuple(range(n_seeds))
+    # ---- gap predicts downstream accuracy (MNIST -> USPS), averaged over seeds ----
+    log(f"\n=== REAL DOWNSTREAM: gap vs label-transfer accuracy (MNIST->USPS, {n_seeds} seeds) ===")
     try:
         da = D.load_mnist_da_labeled(dim=50, log=log)
-        out["da_accuracy"] = da_gap_vs_accuracy(da["Xs"], da["ys"], da["Xt"], da["yt"],
-                                                N=Nfr, use_gpu=use_gpu, log=log)
+        out["da_accuracy"] = da_gap_vs_accuracy_multiseed(
+            da["Xs"], da["ys"], da["Xt"], da["yt"], N=Nfr, seeds=seeds,
+            use_gpu=use_gpu, log=log)
         out["da_accuracy"]["meta"] = da["meta"]
     except Exception as e:
         log(f"  [da skip] {e}")
 
-    # ---- gap predicts CELL-TYPE transfer accuracy (single-cell DA) ----
-    log("\n=== REAL DOWNSTREAM: gap vs cell-type transfer accuracy (single-cell) ===")
+    # ---- gap predicts CELL-TYPE transfer accuracy (single-cell DA), seeds ----
+    log(f"\n=== REAL DOWNSTREAM: gap vs cell-type transfer accuracy (single-cell, {n_seeds} seeds) ===")
     try:
         sc_da = D.load_singlecell_labeled(dim=50, k_types=4, log=log)
         N_sc = min(Nfr, len(sc_da["Xs"]), len(sc_da["Xt"]))
-        out["sc_da_accuracy"] = da_gap_vs_accuracy(
+        out["sc_da_accuracy"] = da_gap_vs_accuracy_multiseed(
             sc_da["Xs"], sc_da["ys"], sc_da["Xt"], sc_da["yt"],
-            N=N_sc, use_gpu=use_gpu, log=log)
+            N=N_sc, seeds=seeds, use_gpu=use_gpu, log=log)
         out["sc_da_accuracy"]["meta"] = sc_da["meta"]
         out["sc_da_accuracy"]["classes"] = sc_da.get("classes")
     except Exception as e:
