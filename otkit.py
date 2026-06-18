@@ -171,6 +171,137 @@ def minibatch_ub(M, n, m=256, seed=7, max_batches=64):
     return float(np.mean(vals))
 
 
+def minibatch_ub_xy(X, Y, m=256, seed=7, max_batches=64):
+    """Minibatch OT directly from POINT CLOUDS -- builds only m x m cost matrices,
+    never the full n x n. This is what lets the upper-bound family scale to
+    millions of points (Section: memory stress test): peak memory is O(m^2),
+    independent of n."""
+    X = np.asarray(X, float); Y = np.asarray(Y, float)
+    n = min(X.shape[0], Y.shape[0]); m = min(m, n)
+    K = min(max(1, n // m), max_batches)
+    g = np.random.default_rng(seed); vals = []
+    ab = np.ones(m) / m
+    for _ in range(K):
+        ix = g.choice(X.shape[0], m, replace=False)
+        iy = g.choice(Y.shape[0], m, replace=False)
+        Mb = ot.dist(X[ix], Y[iy], metric="sqeuclidean")
+        vals.append(ot.emd2(ab, ab, Mb))
+    return float(np.mean(vals))
+
+
+# ============================ memory / OOM stress test ============================
+def _gpu_total_gb():
+    if _HAS_CUDA:
+        try:
+            return float(torch.cuda.get_device_properties(0).total_memory) / 1e9
+        except Exception:
+            return None
+    return None
+
+
+def memory_stress_test(d=5, shift=2.0,
+                       dense_Ns=(20000, 30000, 40000, 50000, 64000, 80000),
+                       light_Ns=(10000, 50000, 100000, 300000, 1000000),
+                       eps_rel=0.05, n_proj=100, mb=256, seed=99,
+                       use_gpu=True, numItermax=1000):
+    """Locate the dense-method OOM wall, and show one-sided methods scale past it.
+
+    DENSE path (the certifiable two-sided route): for each n we build the n x n
+    squared-Euclidean cost matrix *on the GPU* (float64) and run one log-domain
+    Sinkhorn solve, recording wall-clock and peak GPU memory -- or, when the
+    allocation exceeds VRAM, we catch the out-of-memory error and stop, recording
+    the wall at that n. This makes the paper's Omega(n^2) memory claim concrete on
+    a specific device.
+
+    LIGHT path (one-sided surrogates): sliced (point-cloud, no matrix) and
+    minibatch (only m x m matrices) are run out to n = 1e6, where the dense path
+    is many terabytes. Their peak memory is O(n d) and O(m^2) respectively.
+
+    Returns dict(dense=[...], light=[...], oom_at=int|None, gpu_total_gb=float|None,
+                 dtype, device). Everything is wrapped so a failure never crashes
+    the caller -- the worst case is a short or empty dense sweep on CPU-only hosts.
+    """
+    out = {"dense": [], "light": [], "oom_at": None,
+           "gpu_total_gb": _gpu_total_gb(),
+           "dtype": "float64",
+           "device": "cuda" if (use_gpu and _HAS_CUDA) else "cpu"}
+    rng = np.random.default_rng(seed)
+    have_cuda = bool(use_gpu and _HAS_CUDA)
+    OOM = RuntimeError
+    if _HAS_TORCH:
+        OOM = getattr(getattr(torch, "cuda", None), "OutOfMemoryError", RuntimeError)
+
+    # ---- dense sweep ----
+    for N in dense_Ns:
+        rec = dict(n=int(N), ok=False, time=None, mem_gb=None)
+        try:
+            if have_cuda:
+                torch.cuda.empty_cache()
+                torch.cuda.reset_peak_memory_stats()
+                Xt = torch.as_tensor(rng.standard_normal((N, d)), dtype=torch.float64, device="cuda")
+                Yt = torch.as_tensor(rng.standard_normal((N, d)) + shift, dtype=torch.float64, device="cuda")
+                at = torch.full((N,), 1.0 / N, dtype=torch.float64, device="cuda")
+                bt = at.clone()
+                torch.cuda.synchronize(); t0 = time.perf_counter()
+                Mt = torch.cdist(Xt, Yt) ** 2
+                reg = eps_rel * float(Mt.max())
+                ot.sinkhorn(at, bt, Mt, reg, method=SINKHORN_METHOD, log=True,
+                            numItermax=numItermax, stopThr=1e-7)
+                torch.cuda.synchronize(); dt = time.perf_counter() - t0
+                rec["time"] = dt
+                rec["mem_gb"] = float(torch.cuda.max_memory_allocated()) / 1e9
+                rec["ok"] = True
+                del Mt, Xt, Yt, at, bt; torch.cuda.empty_cache()
+            else:
+                # CPU-only host: keep allocations modest so we never wedge the box
+                if N > 8000:
+                    rec["error"] = "skipped on CPU (needs GPU for the real wall)"
+                    out["dense"].append(rec); continue
+                pr = sample_gaussian_problem(d=d, n=N, seed=seed, shift=shift)
+                M = cost_matrix(pr["X"], pr["Y"]); a = np.ones(N) / N; b = a
+                t0 = time.perf_counter()
+                sinkhorn_gap(M, a, b, eps_rel, use_gpu=False, numItermax=numItermax)
+                rec["time"] = time.perf_counter() - t0
+                rec["mem_gb"] = mem_mb(2 * N * N) / 1e3
+                rec["ok"] = True
+                del M
+        except OOM as e:                       # GPU out of memory
+            rec["error"] = "OOM"
+            out["oom_at"] = out["oom_at"] or int(N)
+            try: torch.cuda.empty_cache()
+            except Exception: pass
+        except (RuntimeError, MemoryError) as e:
+            msg = str(e).lower()
+            rec["error"] = "OOM" if "out of memory" in msg or "alloc" in msg else str(e)[:90]
+            if "out of memory" in msg or isinstance(e, MemoryError):
+                out["oom_at"] = out["oom_at"] or int(N)
+            try: torch.cuda.empty_cache()
+            except Exception: pass
+        out["dense"].append(rec)
+        if not rec["ok"]:
+            break  # first failure = the wall; larger n only fails harder
+
+    # ---- light sweep (one-sided, point-cloud only) ----
+    for N in light_Ns:
+        try:
+            X = rng.standard_normal((N, d))
+            Y = rng.standard_normal((N, d)) + shift
+            lp = n_proj if N <= 100000 else max(20, n_proj // 2)  # trim projections at 1e6
+            t0 = time.perf_counter(); sw = sliced_lb(X, Y, n_proj=lp)
+            t_sl = time.perf_counter() - t0
+            t0 = time.perf_counter(); U = minibatch_ub_xy(X, Y, m=mb)
+            t_mb = time.perf_counter() - t0
+            out["light"].append(dict(n=int(N), sliced=sw, minibatch=U,
+                                     sliced_time=t_sl, minibatch_time=t_mb,
+                                     # point clouds (2) + projections buffer
+                                     mem_gb=float((2 * N * d + N * lp) * 8) / 1e9))
+            del X, Y
+        except (RuntimeError, MemoryError) as e:
+            out["light"].append(dict(n=int(N), error=str(e)[:90]))
+            break
+    return out
+
+
 # ============================ runners ============================
 def cost_matrix(X, Y):
     return ot.dist(X, Y, metric="sqeuclidean")
@@ -264,6 +395,52 @@ def dimension_sweep(Xfull, Yfull, dims=(2, 5, 10, 20, 50), n_proj=200, mb=256):
                          dual_deficit=(OTstar - L) / OTstar,
                          primal_excess=(U - OTstar) / OTstar))
     return dict(rows=rows)
+
+
+def dimension_sweep_embedded(Xemb, Yemb, dims=(2, 4, 8, 16, 32), N=2000,
+                             n_proj=500, mb=256, label="embed", seed=0):
+    """Dimensional-deficit sweep on a PRECOMPUTED embedding: for each d we take
+    the first d coordinates as-is (no re-projection), so a nonlinear embedding
+    (e.g. a diffusion map) is tested in its own geometry. This is the test of
+    whether the 1-1/d sliced deficit is a Gaussian/linear artifact or survives in
+    a nonlinear latent space. Reports the sliced and composed relative gaps vs the
+    exact discrete optimum at each d."""
+    g = np.random.default_rng(seed)
+    nX, nY = Xemb.shape[0], Yemb.shape[0]
+    n = min(nX, nY, int(N))
+    ix = g.choice(nX, n, replace=False); iy = g.choice(nY, n, replace=False)
+    Xe, Ye = np.asarray(Xemb)[ix], np.asarray(Yemb)[iy]
+    a = np.ones(n) / n; b = np.ones(n) / n
+    rows = []
+    for d in dims:
+        d = int(min(d, Xe.shape[1]))
+        Xd, Yd = Xe[:, :d], Ye[:, :d]
+        M = cost_matrix(Xd, Yd)
+        OTstar = exact_ot(M, a, b)
+        L = sliced_lb(Xd, Yd, n_proj=n_proj); U = minibatch_ub(M, n, m=mb)
+        rows.append(dict(d=d, OTstar=OTstar,
+                         sliced_rel_gap=(OTstar - L) / OTstar,
+                         hybrid_relgap=(U - L) / OTstar))
+        del M
+    return dict(rows=rows, label=label, n=n)
+
+
+def raw_genespace_point(X, Y, N=1500, n_proj=500, mb=256, seed=0):
+    """One OT measurement in the FULL native (raw gene) space -- no PCA. Returns
+    the exact OT*, the sliced relative deficit, and the composed relative gap, to
+    show the framework applies unchanged at very high ambient dimension."""
+    g = np.random.default_rng(seed)
+    nX, nY = X.shape[0], Y.shape[0]
+    n = min(nX, nY, int(N))
+    ix = g.choice(nX, n, replace=False); iy = g.choice(nY, n, replace=False)
+    Xs, Ys = np.asarray(X)[ix], np.asarray(Y)[iy]
+    a = np.ones(n) / n; b = np.ones(n) / n
+    M = cost_matrix(Xs, Ys)
+    OTstar = exact_ot(M, a, b)
+    L = sliced_lb(Xs, Ys, n_proj=n_proj); U = minibatch_ub(M, n, m=mb)
+    return dict(d=int(Xs.shape[1]), n=n, OTstar=OTstar,
+                sliced_rel_gap=(OTstar - L) / OTstar,
+                hybrid_relgap=(U - L) / OTstar)
 
 
 def scaling(Xfull, Yfull, Ns=(500, 1000, 2000, 4000, 8000, 16000, 32000),

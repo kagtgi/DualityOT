@@ -15,13 +15,14 @@ from matplotlib import font_manager as fm
 C_EXACT = "#202124"; C_SINK = "#4285F4"; C_LOWR = "#34A853"
 C_SLICE = "#EA4335"; C_MINI = "#A142F4"
 C_GAP = "#F9AB00"; C_GAPTX = "#B06000"
+C_NEURAL = "#FB8C00"
 GREY2 = "#E8EAED"; GREY5 = "#9AA0A6"; GREY7 = "#5F6368"; GREY9 = "#202124"
 SURF_AMBER = "#FEF7E0"
 STYLE = {"exact": (C_EXACT, "*", True), "entropic": (C_SINK, "o", True),
          "lowrank": (C_LOWR, "s", False), "sliced": (C_SLICE, "^", False),
-         "minibatch": (C_MINI, "D", False)}
+         "minibatch": (C_MINI, "D", False), "neural": (C_NEURAL, "P", False)}
 LABEL = {"exact": "Exact LP", "entropic": "Sinkhorn", "lowrank": "Low-rank",
-         "sliced": "Sliced", "minibatch": "Minibatch"}
+         "sliced": "Sliced", "minibatch": "Minibatch", "neural": "Neural (ICNN)"}
 FP_REG = FP_MED = None
 
 
@@ -69,7 +70,8 @@ def _save(fig, outdir, name):
     plt.close(fig)
 
 
-def _frontier_panel(ax, rows, errkey, order=("exact", "entropic", "lowrank", "minibatch", "sliced"),
+def _frontier_panel(ax, rows, errkey,
+                    order=("exact", "entropic", "lowrank", "minibatch", "sliced", "neural"),
                     hybrid=None):
     fams = {}
     for r in rows: fams.setdefault(r["family"], []).append(r)
@@ -148,7 +150,8 @@ def fig2_frontier(synth, outdir):
     for r in rows: fams.setdefault(r["family"], []).append(r)
     fig, axes = plt.subplots(1, 2, figsize=(7.0, 2.9))
     for ax, xk, xl in [(axes[0], "mem", "peak memory (MB)"), (axes[1], "time", "wall-clock time (s)")]:
-        for fam in ["exact", "entropic", "lowrank", "minibatch", "sliced"]:
+        for fam in ["exact", "entropic", "lowrank", "minibatch", "sliced", "neural"]:
+            if fam not in fams: continue
             rs = fams[fam]; xs = np.array([max(r[xk], 1e-3) for r in rs]); ys = np.array([max(r["rel_err_disc"], 5e-4) for r in rs]); o = np.argsort(xs)
             mk(ax, xs[o], ys[o], fam, label=(LABEL[fam] if xk == "mem" else None))
         ax.set_xscale("log"); ax.set_yscale("log"); ax.set_xlabel(xl, color=GREY9, fontproperties=FP_REG); style_ax(ax)
@@ -198,6 +201,111 @@ def fig4_hybrid(synth, outdir):
     fig.tight_layout(pad=0.5); _save(fig, outdir, "fig4_hybrid")
 
 
+def fig_composed_schematic(outdir):
+    """Block diagram of the composed certificate: two independent near-linear
+    one-sided methods feed a two-sided gap G = U - L (single column)."""
+    fig, ax = plt.subplots(figsize=(3.4, 2.7))
+    ax.set_xlim(0, 10); ax.set_ylim(0, 10); ax.axis("off")
+
+    def box(x, y, w, h, fc, ec, txt, sub, tc):
+        ax.add_patch(FancyBboxPatch((x - w / 2, y - h / 2), w, h,
+                     boxstyle="round,pad=0,rounding_size=0.18", fc=fc, ec=ec, lw=1.4, zorder=3))
+        ax.text(x, y + 0.32, txt, ha="center", va="center", fontsize=8.5,
+                color=tc, fontproperties=FP_MED, zorder=4)
+        ax.text(x, y - 0.42, sub, ha="center", va="center", fontsize=6.4,
+                color=GREY7, fontproperties=FP_REG, zorder=4)
+
+    # two independent one-sided inputs
+    box(2.6, 7.8, 4.0, 1.6, "#FDECEA", C_SLICE, r"Sliced  $L \leq \mathrm{OT}^\star$", "relaxation (near-linear)", C_SLICE)
+    box(2.6, 2.2, 4.0, 1.6, "#E6F4EA", C_LOWR, r"Minibatch  $U \geq \mathrm{OT}^\star$", "restriction (near-linear)", C_LOWR)
+    # combine node
+    box(7.6, 5.0, 3.4, 1.8, SURF_AMBER, C_GAPTX, r"$G = U - L$", "two-sided certificate", C_GAPTX)
+    # arrows
+    ax.annotate("", xy=(5.9, 5.55), xytext=(4.6, 7.6),
+                arrowprops=dict(arrowstyle="-|>", color=C_SLICE, lw=1.5))
+    ax.annotate("", xy=(5.9, 4.45), xytext=(4.6, 2.4),
+                arrowprops=dict(arrowstyle="-|>", color=C_LOWR, lw=1.5))
+    ax.text(5.0, 9.4, "Compose two one-sided methods into a certificate",
+            ha="center", va="center", fontsize=8.3, color=GREY9, fontproperties=FP_MED)
+    ax.text(7.6, 2.7, "valid for ANY feasible\n" r"$\pi$ and $(f,g)$ (weak duality)",
+            ha="center", va="center", fontsize=6.2, color=GREY7, fontproperties=FP_REG)
+    fig.tight_layout(pad=0.2); _save(fig, outdir, "fig_composed_schematic")
+
+
+def fig_memory_scaling(synth, outdir):
+    """The OOM wall: dense (certifiable) memory grows as O(n^2) and hits the GPU
+    VRAM ceiling, while one-sided surrogates stay flat out to n=1e6."""
+    ms = synth.get("memory_stress")
+    if not ms: return
+    fig, ax = plt.subplots(figsize=(3.5, 2.8))
+    # theoretical dense requirement: one n x n float64 matrix = 8 n^2 bytes
+    ng = np.logspace(4, 6, 60)
+    ax.plot(ng, 8.0 * ng ** 2 / 1e9, "--", color=C_SINK, lw=1.2,
+            label=r"dense $O(n^2)$ need")
+    # measured dense points that fit in memory
+    dok = [r for r in ms.get("dense", []) if r.get("ok") and r.get("mem_gb")]
+    if dok:
+        ax.plot([r["n"] for r in dok], [r["mem_gb"] for r in dok], "o-",
+                color=C_SINK, mfc=C_SINK, mec=C_SINK, ms=5, lw=1.3,
+                label="Sinkhorn (measured)")
+    # VRAM capacity line + OOM marker
+    cap = ms.get("gpu_total_gb")
+    if cap:
+        ax.axhline(cap, color=GREY7, ls=":", lw=1.1)
+        ax.text(1.1e4, cap * 1.05, f"GPU VRAM {cap:.0f} GB", fontsize=6.4,
+                color=GREY7, fontproperties=FP_REG)
+    if ms.get("oom_at"):
+        yk = cap if cap else 8.0 * ms["oom_at"] ** 2 / 1e9
+        ax.plot([ms["oom_at"]], [yk], "X", ms=11, mfc=C_SLICE, mec="white",
+                mew=1.0, zorder=6, label=f"OOM @ n={ms['oom_at']:,}")
+    # one-sided surrogates: tiny, flat
+    light = ms.get("light", [])
+    lok = [r for r in light if r.get("mem_gb")]
+    if lok:
+        ax.plot([r["n"] for r in lok], [r["mem_gb"] for r in lok], "^-",
+                color=C_SLICE, mfc="white", mec=C_SLICE, mew=1.2, ms=5, lw=1.3,
+                label="sliced / minibatch")
+    ax.set_xscale("log"); ax.set_yscale("log")
+    ax.set_xlabel(r"sample size $n$", color=GREY9, fontproperties=FP_REG)
+    ax.set_ylabel("peak memory (GB)", color=GREY9, fontproperties=FP_REG)
+    ax.set_title("Memory wall: certifiable vs one-sided", color=GREY9,
+                 fontproperties=FP_MED, fontsize=9)
+    _leg(ax, loc="lower right", handlelength=1.6, fontsize=6.0); style_ax(ax)
+    fig.tight_layout(pad=0.4); _save(fig, outdir, "fig_memory_scaling")
+
+
+def fig_singlecell_transport(real, outdir):
+    """Optimal-transport plan between two cell types in single-cell UMAP space:
+    arrows show where the exact plan sends each source cell (geometric distortion
+    in a biological embedding)."""
+    viz = real.get("_singlecell_viz")
+    if viz is None: return
+    import ot
+    A = np.asarray(viz["umapA"]); B = np.asarray(viz["umapB"])
+    Xp = np.asarray(viz["Xpca"]); Yp = np.asarray(viz["Ypca"])
+    nA = len(Xp); nB = len(Yp)
+    a = np.ones(nA) / nA; b = np.ones(nB) / nB
+    M = ot.dist(Xp, Yp, metric="sqeuclidean")
+    P = ot.emd(a, b, M)
+    mapped = (P @ B) / np.maximum(P.sum(1, keepdims=True), 1e-12)  # barycentric in UMAP
+    fig, ax = plt.subplots(figsize=(3.5, 3.0))
+    ax.scatter(A[:, 0], A[:, 1], s=12, c=C_LOWR, alpha=0.7, edgecolor="none",
+               label=viz.get("gA", "source"), zorder=3)
+    ax.scatter(B[:, 0], B[:, 1], s=12, c=C_SINK, alpha=0.7, edgecolor="none",
+               label=viz.get("gB", "target"), zorder=3)
+    for i in range(nA):
+        ax.annotate("", xy=(mapped[i, 0], mapped[i, 1]), xytext=(A[i, 0], A[i, 1]),
+                    arrowprops=dict(arrowstyle="-", color=C_GAP, lw=0.45, alpha=0.5), zorder=2)
+    ax.set_xticks([]); ax.set_yticks([])
+    ax.set_xlabel("UMAP-1", color=GREY9, fontproperties=FP_REG)
+    ax.set_ylabel("UMAP-2", color=GREY9, fontproperties=FP_REG)
+    ax.set_title("OT plan between cell types (UMAP)", color=GREY9,
+                 fontproperties=FP_MED, fontsize=9)
+    _leg(ax, loc="best", handlelength=1.2, fontsize=6.6)
+    for s in ("top", "right", "left", "bottom"): ax.spines[s].set_color(GREY5)
+    fig.tight_layout(pad=0.3); _save(fig, outdir, "fig_singlecell_transport")
+
+
 # =================================================== REAL-DATA FIGURES
 PRETTY = {"single_cell": "single-cell (PBMC)", "mnist_usps": "MNIST vs USPS", "color": "color transfer"}
 
@@ -226,47 +334,74 @@ def real_dimension(real, outdir):
         rows = real["datasets"][name]["dimension"]["rows"]
         d = np.array([r["d"] for r in rows], float); sg = np.array([r["sliced_rel_gap"] for r in rows])
         dmax = max(dmax, d.max())
-        ax.plot(d, sg, marker=marks[name], color=colors[name], mfc=colors[name], mec=colors[name], ms=5, lw=1.4, label=PRETTY[name])
+        ax.plot(d, sg, marker=marks[name], color=colors[name], mfc=colors[name], mec=colors[name], ms=5, lw=1.4, label=PRETTY[name] + " (PCA)")
+    # nonlinear (diffusion-map) overlay for single-cell: does 1-1/d survive?
+    sc = real["datasets"].get("single_cell", {})
+    if "dimension_nonlinear" in sc:
+        rows = sc["dimension_nonlinear"]["rows"]
+        d = np.array([r["d"] for r in rows], float); sg = np.array([r["sliced_rel_gap"] for r in rows])
+        dmax = max(dmax, d.max())
+        ax.plot(d, sg, marker="s", color=C_LOWR, mfc="white", mec=C_LOWR, mew=1.3,
+                ms=5, lw=1.2, ls="--", label="single-cell (diffmap)")
     dg = np.logspace(0, np.log2(dmax), 50, base=2)
     ax.plot(dg, 1 - 1 / dg, ":", color=GREY5, lw=1.2, label=r"$1-1/d$ (Prop. 2)")
-    ax.set_xscale("log", base=2); ax.set_xlabel(r"effective dimension $d$ (PCA)", color=GREY9, fontproperties=FP_REG)
+    ax.set_xscale("log", base=2); ax.set_xlabel(r"effective dimension $d$ (PCA / diffmap)", color=GREY9, fontproperties=FP_REG)
     ax.set_ylabel("sliced relative gap", color=GREY9, fontproperties=FP_REG); ax.set_ylim(-0.03, 1.05)
     ax.set_title("Dimensional deficit on real data", color=GREY9, fontproperties=FP_MED, fontsize=9)
     _leg(ax, loc="lower right", handlelength=1.7, fontsize=6.6); style_ax(ax)
     fig.tight_layout(pad=0.4); _save(fig, outdir, "real_dimension")
 
 
+def _gap_acc_panel(ax, res, title):
+    """One gap-vs-accuracy panel from a da_gap_vs_accuracy result dict."""
+    rows = [r for r in res["rows"] if r["method"] == "sinkhorn"]
+    g = np.array([r["relgap"] for r in rows]); acc = np.array([r["acc"] for r in rows])
+    ax.scatter(g, acc, c=np.log10([r["eps"] for r in rows]), cmap="Blues_r",
+               s=46, edgecolor=C_SINK, linewidth=1.0, zorder=3)
+    o = np.argsort(g); ax.plot(g[o], acc[o], "-", color=C_SINK, lw=1.2, zorder=2)
+    ex = [r for r in res["rows"] if r["method"] == "exact"]
+    if ex: ax.axhline(ex[0]["acc"], color=C_EXACT, ls="--", lw=1.0, label="exact-OT transfer")
+    ax.set_xlabel(r"certified gap $G/\mathrm{OT}^\star$", color=C_GAPTX, fontproperties=FP_MED)
+    ax.set_ylabel("label-transfer accuracy", color=GREY9, fontproperties=FP_REG)
+    ax.set_title(title, color=GREY9, fontproperties=FP_MED, fontsize=8.3)
+    _leg(ax, loc="lower left", handlelength=1.6, fontsize=6.4); style_ax(ax)
+
+
 def real_gap_accuracy(real, outdir):
-    has_da = "da_accuracy" in real; has_sc = "scaling" in real and len(real["scaling"].get("sinkhorn", [])) > 1
-    ncol = has_da + has_sc
+    has_da = "da_accuracy" in real
+    has_scda = "sc_da_accuracy" in real
+    has_sc = "scaling" in real and len(real["scaling"].get("sinkhorn", [])) > 1
+    panels = []
+    if has_da:   panels.append("da")
+    if has_scda: panels.append("scda")
+    if has_sc:   panels.append("scaling")
+    ncol = len(panels)
     if ncol == 0: return
-    fig, axes = plt.subplots(1, ncol, figsize=(3.4 * ncol, 2.7), squeeze=False); k = 0
-    if has_da:
-        ax = axes[0][k]; k += 1
-        rows = [r for r in real["da_accuracy"]["rows"] if r["method"] == "sinkhorn"]
-        g = np.array([r["relgap"] for r in rows]); acc = np.array([r["acc"] for r in rows])
-        sc = ax.scatter(g, acc, c=np.log10([r["eps"] for r in rows]), cmap="Blues_r", s=46, edgecolor=C_SINK, linewidth=1.0, zorder=3)
-        o = np.argsort(g); ax.plot(g[o], acc[o], "-", color=C_SINK, lw=1.2, zorder=2)
-        ex = [r for r in real["da_accuracy"]["rows"] if r["method"] == "exact"]
-        if ex: ax.axhline(ex[0]["acc"], color=C_EXACT, ls="--", lw=1.0, label="exact-OT transfer")
-        ax.set_xlabel(r"certified gap $G/\mathrm{OT}^\star$", color=C_GAPTX, fontproperties=FP_MED)
-        ax.set_ylabel("label-transfer accuracy", color=GREY9, fontproperties=FP_REG)
-        ax.set_title("(a) gap predicts transfer (MNIST$\\to$USPS)", color=GREY9, fontproperties=FP_MED, fontsize=8.3)
-        _leg(ax, loc="lower left", handlelength=1.6, fontsize=6.4); style_ax(ax)
-    if has_sc:
-        ax = axes[0][k]
-        sc = real["scaling"]
-        fmap = {"exact": "exact", "sinkhorn": "entropic", "lowrank": "lowrank",
-                "sliced": "sliced", "minibatch": "minibatch"}
-        lmap = {"exact": "exact LP", "sinkhorn": "Sinkhorn (GPU)", "lowrank": "low-rank",
-                "sliced": "sliced", "minibatch": "minibatch"}
-        for key in ["exact", "sinkhorn", "lowrank", "sliced"]:
-            v = sc.get(key, [])
-            if len(v) < 1: continue
-            ns = np.array([r["n"] for r in v]); ts = np.array([r["time"] for r in v]); mk(ax, ns, ts, fmap[key], label=lmap[key], ms=4.6)
-        ax.set_xscale("log"); ax.set_yscale("log"); ax.set_xlabel(r"sample size $n$", color=GREY9, fontproperties=FP_REG); ax.set_ylabel("time (s)", color=GREY9, fontproperties=FP_REG)
-        ax.set_title("(b) cost of certifiability at scale", color=GREY9, fontproperties=FP_MED, fontsize=8.3)
-        _leg(ax, loc="upper left", handlelength=1.7, fontsize=6.4); style_ax(ax)
+    tags = ["(a)", "(b)", "(c)", "(d)"]
+    fig, axes = plt.subplots(1, ncol, figsize=(3.4 * ncol, 2.7), squeeze=False)
+    for i, p in enumerate(panels):
+        ax = axes[0][i]; tag = tags[i]
+        if p == "da":
+            _gap_acc_panel(ax, real["da_accuracy"], f"{tag} gap predicts transfer (MNIST$\\to$USPS)")
+        elif p == "scda":
+            _gap_acc_panel(ax, real["sc_da_accuracy"], f"{tag} gap predicts cell-type transfer")
+        elif p == "scaling":
+            sc = real["scaling"]
+            fmap = {"exact": "exact", "sinkhorn": "entropic", "lowrank": "lowrank",
+                    "sliced": "sliced", "minibatch": "minibatch"}
+            lmap = {"exact": "exact LP", "sinkhorn": "Sinkhorn (GPU)", "lowrank": "low-rank",
+                    "sliced": "sliced", "minibatch": "minibatch"}
+            for key in ["exact", "sinkhorn", "lowrank", "sliced"]:
+                v = sc.get(key, [])
+                if len(v) < 1: continue
+                ns = np.array([r["n"] for r in v]); ts = np.array([r["time"] for r in v])
+                mk(ax, ns, ts, fmap[key], label=lmap[key], ms=4.6)
+            ax.set_xscale("log"); ax.set_yscale("log")
+            ax.set_xlabel(r"sample size $n$", color=GREY9, fontproperties=FP_REG)
+            ax.set_ylabel("time (s)", color=GREY9, fontproperties=FP_REG)
+            ax.set_title(f"{tag} cost of certifiability at scale", color=GREY9,
+                         fontproperties=FP_MED, fontsize=8.3)
+            _leg(ax, loc="upper left", handlelength=1.7, fontsize=6.4); style_ax(ax)
     fig.tight_layout(pad=0.5); _save(fig, outdir, "real_gap_accuracy")
 
 
@@ -297,10 +432,15 @@ def generate_all(synth, real, outdir, font_dir="."):
     _setup(font_dir); os.makedirs(outdir, exist_ok=True); made = []
     try: fig1_teaser(outdir); made.append("fig1_teaser")
     except Exception as e: print("fig1 failed:", e)
-    for fn, nm in [(fig2_frontier, "fig2_frontier"), (fig3_diagnostics, "fig3_diagnostics"), (fig4_hybrid, "fig4_hybrid")]:
+    try: fig_composed_schematic(outdir); made.append("fig_composed_schematic")
+    except Exception as e: print("fig_composed_schematic failed:", e)
+    for fn, nm in [(fig2_frontier, "fig2_frontier"), (fig3_diagnostics, "fig3_diagnostics"),
+                   (fig4_hybrid, "fig4_hybrid"), (fig_memory_scaling, "fig_memory_scaling")]:
         try: fn(synth, outdir); made.append(nm)
         except Exception as e: print(nm, "failed:", e)
-    for fn, nm in [(real_frontier, "real_frontier"), (real_dimension, "real_dimension"), (real_gap_accuracy, "real_gap_accuracy"), (color_transfer, "color_transfer")]:
+    for fn, nm in [(real_frontier, "real_frontier"), (real_dimension, "real_dimension"),
+                   (real_gap_accuracy, "real_gap_accuracy"), (color_transfer, "color_transfer"),
+                   (fig_singlecell_transport, "fig_singlecell_transport")]:
         try: fn(real, outdir); made.append(nm)
         except Exception as e: print(nm, "failed:", e)
     return made

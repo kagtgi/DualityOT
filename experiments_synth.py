@@ -50,6 +50,18 @@ def _frontier_gaussian(d=5, n=2000, seed=7, fast=False):
         if mb > n: continue
         t0 = time.perf_counter(); U = K.minibatch_ub(M, n, m=mb)
         add("Minibatch", "minibatch", U, U, None, False, time.perf_counter() - t0, K.mem_mb(mb * mb))
+    # Neural OT (ICNN, Makkuva): an UNCERTIFIED reference point -- best effort,
+    # never blocks the suite. Where on the frontier does the neural gap sit?
+    try:
+        import neural_ot
+        nres = neural_ot.neural_w2(X, Y, W2_ref=W2c, use_gpu=True,
+                                   iters=(400 if fast else 1500))
+        if nres and nres.get("converged"):
+            nmem = nres.get("mem_mb") or K.mem_mb(2 * n * 64)  # tiny ICNN footprint
+            add("Neural (ICNN)", "neural", nres["est"], None, None, False,
+                nres["time"], nmem)
+    except Exception:
+        pass
     return dict(rows=rows, W2_disc=W2d, W2_cont=W2c)
 
 
@@ -170,6 +182,18 @@ def _nongauss():
                 X=X[:400].tolist(), Y=Y[:400].tolist())
 
 
+def _memory_stress(use_gpu=True, fast=False):
+    """The OOM wall: find where dense (certifiable) Sinkhorn runs out of GPU
+    memory, and show one-sided surrogates reaching n=1e6 on the same device."""
+    if fast:
+        dense = (8000, 16000, 24000)
+        light = (10000, 50000, 100000)
+    else:
+        dense = (20000, 30000, 40000, 50000, 64000, 80000)
+        light = (10000, 50000, 100000, 300000, 1000000)
+    return K.memory_stress_test(dense_Ns=dense, light_Ns=light, use_gpu=use_gpu)
+
+
 def run_synth(log=print, fast=False, use_gpu=True):
     OUT = {}
     log("[synth A] Gaussian fidelity-cost frontier (d=5, n=2000)...")
@@ -184,4 +208,9 @@ def run_synth(log=print, fast=False, use_gpu=True):
     OUT["hybrid_dim"] = _hybrid_dim(use_gpu=use_gpu, fast=fast)
     log("[synth F] non-Gaussian (two-moons) frontier (n=2000)...")
     OUT["nongauss"] = _nongauss()
+    log("[synth G] memory/OOM stress test (dense wall vs one-sided to n=1e6)...")
+    OUT["memory_stress"] = _memory_stress(use_gpu=use_gpu, fast=fast)
+    ms = OUT["memory_stress"]
+    log(f"   dense OOM at n={ms.get('oom_at')}, GPU={ms.get('gpu_total_gb')} GB; "
+        f"one-sided reached n={ms['light'][-1].get('n') if ms.get('light') else 'NA'}")
     return OUT

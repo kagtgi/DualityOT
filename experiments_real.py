@@ -58,7 +58,7 @@ def run_real(log=print, fast=False, use_gpu=True):
     dims = (2, 5, 10, 20) if fast else (2, 5, 10, 20, 30, 50)  # add d=30
 
     specs = [
-        ("single_cell", lambda: D.load_singlecell(dim=50, log=log), True),
+        ("single_cell", lambda: D.load_singlecell_rich(dim=50, log=log), True),
         ("mnist_usps",  lambda: D.load_mnist_usps(dim=50, log=log), True),
         ("color",       lambda: D.load_color(n_pixels=Nfr + 300, log=log), False),
     ]
@@ -77,8 +77,39 @@ def run_real(log=print, fast=False, use_gpu=True):
             f"(deficit={rec['composed']['dual_deficit']:.3f}) t={rec['composed']['time']:.3f}s")
         if do_dim:
             rec["dimension"] = otkit.dimension_sweep(d["X"], d["Y"], dims=dims)
-            log("  dimension sweep: " + ", ".join(
+            log("  dimension sweep (linear PCA): " + ", ".join(
                 f"d{r['d']}:{r['sliced_rel_gap']:.2f}" for r in rec["dimension"]["rows"]))
+        if name == "single_cell":
+            # (i) nonlinear (diffusion-map) dimension sweep -- does 1-1/d survive
+            #     a nonlinear latent space, or is it a linear-PCA artifact?
+            try:
+                ndims = (2, 4, 8, 14) if fast else (2, 4, 8, 12, 14)
+                rec["dimension_nonlinear"] = otkit.dimension_sweep_embedded(
+                    d["X_diff"], d["Y_diff"], dims=ndims, N=Nfr, label="diffusion map")
+                log("  dimension sweep (nonlinear diffmap): " + ", ".join(
+                    f"d{r['d']}:{r['sliced_rel_gap']:.2f}"
+                    for r in rec["dimension_nonlinear"]["rows"]))
+            except Exception as e:
+                log(f"  [nonlinear sweep skip] {e}")
+            # (ii) OT in the FULL native gene space (no PCA), extreme ambient d
+            try:
+                rec["raw_genespace"] = otkit.raw_genespace_point(
+                    d["X_raw"], d["Y_raw"], N=min(Nfr, 1200))
+                rg = rec["raw_genespace"]
+                log(f"  raw gene-space (d={rg['d']}): sliced_rel_gap={rg['sliced_rel_gap']:.3f}, "
+                    f"hybrid_relgap={rg['hybrid_relgap']:.3f}")
+            except Exception as e:
+                log(f"  [raw gene-space skip] {e}")
+            # (iii) transport-quiver coordinates for the biology figure
+            if d.get("umapA") is not None and d.get("umapB") is not None:
+                g = np.random.default_rng(0)
+                nv = min(220, len(d["X"]), len(d["Y"]))
+                ia = g.choice(len(d["X"]), nv, replace=False)
+                ib = g.choice(len(d["Y"]), nv, replace=False)
+                out["_singlecell_viz"] = dict(
+                    Xpca=d["X"][ia], Ypca=d["Y"][ib],
+                    umapA=np.asarray(d["umapA"])[ia], umapB=np.asarray(d["umapB"])[ib],
+                    gA=d.get("gA", "A"), gB=d.get("gB", "B"))
         if name == "color":  # keep the image arrays for the transfer visual
             rec["color_viz"] = True
             out["_color_imgs"] = dict(src_img=d["src_img"], tgt_img=d["tgt_img"],
@@ -115,5 +146,18 @@ def run_real(log=print, fast=False, use_gpu=True):
         out["da_accuracy"]["meta"] = da["meta"]
     except Exception as e:
         log(f"  [da skip] {e}")
+
+    # ---- gap predicts CELL-TYPE transfer accuracy (single-cell DA) ----
+    log("\n=== REAL DOWNSTREAM: gap vs cell-type transfer accuracy (single-cell) ===")
+    try:
+        sc_da = D.load_singlecell_labeled(dim=50, k_types=4, log=log)
+        N_sc = min(Nfr, len(sc_da["Xs"]), len(sc_da["Xt"]))
+        out["sc_da_accuracy"] = da_gap_vs_accuracy(
+            sc_da["Xs"], sc_da["ys"], sc_da["Xt"], sc_da["yt"],
+            N=N_sc, use_gpu=use_gpu, log=log)
+        out["sc_da_accuracy"]["meta"] = sc_da["meta"]
+        out["sc_da_accuracy"]["classes"] = sc_da.get("classes")
+    except Exception as e:
+        log(f"  [single-cell da skip] {e}")
 
     return out
