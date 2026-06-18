@@ -168,7 +168,7 @@ def fig3_diagnostics(synth, outdir):
     ax.set_title("(a) gap tracks geometry", color=GREY9, fontproperties=FP_MED, fontsize=8.7); style_ax(ax)
     dd = synth["dimension"]["rows"]; ds = np.array([r["d"] for r in dd]); sg = np.array([r["sliced_rel_gap"] for r in dd]); st = np.array([r["stat_rel_gap"] for r in dd])
     sgs = np.array([r.get("sliced_rel_gap_std", 0.0) for r in dd])
-    ax = axes[1]; dgrid = np.array([1, 2, 4, 8, 16, 32, 64, 128.]); ax.plot(dgrid, 1 - 1 / dgrid, "--", color=GREY5, lw=1.1, label=r"$1-1/d$ (Prop. 2)")
+    ax = axes[1]; dgrid = np.array([1, 2, 4, 8, 16, 32, 64, 128.]); ax.plot(dgrid, 1 - 1 / dgrid, "--", color=GREY5, lw=1.1, label=r"$1-1/d$ (Thm. 1)")
     if np.any(sgs > 0): ax.fill_between(ds, sg - sgs, sg + sgs, color=C_SLICE, alpha=0.18, lw=0, zorder=1)
     mk(ax, ds, sg, "sliced", label="sliced gap", ms=5.0); ax.plot(ds, st, "o:", color=GREY7, mfc="white", mec=GREY7, mew=1.2, ms=4.2, lw=1.1, label="stat. gap")
     ax.set_xscale("log", base=2); ax.set_xlabel(r"dimension $d$", color=GREY9, fontproperties=FP_REG); ax.set_ylabel("relative gap", color=GREY9, fontproperties=FP_REG); ax.set_ylim(-0.03, 1.05)
@@ -193,7 +193,7 @@ def fig4_hybrid(synth, outdir):
     rows = synth["hybrid_dim"]["rows"]; d = np.array([r["d"] for r in rows], float)
     hyb = np.array([r["relgap_hyb"] for r in rows]); hyb_s = np.array([r.get("relgap_hyb_std", 0.0) for r in rows])
     ent = np.array([r["relgap_ent"] for r in rows]); ent_s = np.array([r.get("relgap_ent_std", 0.0) for r in rows])
-    ax = axes[0]; ax.plot(d, 1 - 1 / d, ":", color=GREY5, lw=1.1, label=r"$1-1/d$ (Prop. 2)")
+    ax = axes[0]; ax.plot(d, 1 - 1 / d, ":", color=GREY5, lw=1.1, label=r"$1-1/d$ (Thm. 1)")
     if np.any(hyb_s > 0): ax.fill_between(d, hyb - hyb_s, hyb + hyb_s, color=C_GAP, alpha=0.18, lw=0, zorder=1)
     if np.any(ent_s > 0): ax.fill_between(d, ent - ent_s, ent + ent_s, color=C_SINK, alpha=0.15, lw=0, zorder=1)
     ax.plot(d, hyb, "D-", color=C_GAP, mfc=C_GAP, mec=C_GAP, ms=5.2, lw=1.6, label="hybrid $U\\!-\\!L$ (near-lin.)")
@@ -257,6 +257,7 @@ def fig_memory_scaling(synth, outdir):
     cap = ms.get("gpu_total_gb")
     fig, ax = plt.subplots(figsize=(3.6, 2.9))
     ng = np.logspace(4, 6, 60)
+    _ann = {"float64": (0.42, 3.0), "float32": (1.25, 6.0)}  # stagger OOM labels
     for dt_name, rows in dense.items():
         col, mk_, ls, lab = dt_style.get(dt_name, (C_SINK, "o", "-", dt_name))
         bpe = nbytes.get(dt_name, 8)
@@ -269,8 +270,9 @@ def fig_memory_scaling(synth, outdir):
         if wall:
             yk = cap if cap else bpe * wall ** 2 / 1e9
             ax.plot([wall], [yk], "X", ms=10, mfc=C_SLICE, mec="white", mew=1.0, zorder=6)
+            fx, fy = _ann.get(dt_name, (1.15, 2.2))
             ax.annotate(f"OOM {dt_name[-2:]}\nn={wall/1000:.0f}k", xy=(wall, yk),
-                        xytext=(wall * 1.15, yk * 2.2), fontsize=5.8, color=C_SLICE,
+                        xytext=(wall * fx, yk * fy), fontsize=5.8, color=C_SLICE,
                         fontproperties=FP_REG, zorder=7)
     if cap:
         ax.axhline(cap, color=GREY7, ls=":", lw=1.1)
@@ -360,26 +362,35 @@ def fig_gap_selection(synth, real, outdir):
     px = synth.get("proxy"); dec = (real or {}).get("decision", {})
     fig, axes = plt.subplots(1, 2, figsize=(7.0, 2.8))
     # --- panel (a): proxy validity scatter ---
+    # Among proxies COMPUTABLE without the ground-truth OT* (the certified gap and
+    # the Sinkhorn divergence), only the gap is a valid bound on the two-sided
+    # error. The primal excess / dual deficit need OT* (oracle-only); we draw them
+    # faintly to expose the decomposition.
     ax = axes[0]
     if px and px.get("rows"):
         rows = px["rows"]
         ce = np.array([r["cert_error"] for r in rows])
-        style = {"gap": (C_GAP, "D", "certified gap"), "primal": (C_LOWR, "s", "primal-only"),
-                 "dual": (C_SLICE, "^", "dual-only"), "sinkdiv": (C_MINI, "o", "Sinkhorn div.")}
-        lim = max(ce.max(), max(np.max([r[k] for r in rows]) for k in style)) * 1.1
+        lim = max(ce.max(), max(np.max([r[k] for r in rows]) for k in ["gap", "primal", "dual", "sinkdiv"])) * 1.2
         ax.plot([1e-3, lim], [1e-3, lim], "-", color=GREY7, lw=0.9, zorder=1)
-        for k, (c, mk_, lab) in style.items():
-            ax.scatter(ce, [r[k] for r in rows], s=22, c=c, marker=mk_, edgecolor="none",
-                       alpha=0.8, label=lab, zorder=3)
+        # oracle-only quantities, faint
+        for k, c, mk_ in [("primal", C_LOWR, "s"), ("dual", C_SLICE, "^")]:
+            ax.scatter(ce, [r[k] for r in rows], s=16, c=c, marker=mk_, edgecolor="none",
+                       alpha=0.25, zorder=2)
+        # computable proxies, prominent
+        ax.scatter(ce, [r["sinkdiv"] for r in rows], s=26, c=C_MINI, marker="o", edgecolor="none",
+                   alpha=0.85, label="Sinkhorn div. (computable)", zorder=3)
+        ax.scatter(ce, [r["gap"] for r in rows], s=30, c=C_GAP, marker="D", edgecolor="none",
+                   alpha=0.9, label="certified gap (computable)", zorder=4)
         ax.set_xscale("log"); ax.set_yscale("log")
         ax.set_xlabel(r"two-sided error $\max(U\!-\!\mathrm{OT}^\star,\mathrm{OT}^\star\!-\!L)/\mathrm{OT}^\star$",
-                      color=GREY9, fontproperties=FP_REG, fontsize=7.2)
+                      color=GREY9, fontproperties=FP_REG, fontsize=7.0)
         ax.set_ylabel("proxy value", color=GREY9, fontproperties=FP_REG)
-        ax.set_title("(a) only the gap bounds the error", color=GREY9, fontproperties=FP_MED, fontsize=8.5)
+        ax.set_title("(a) the gap is the only computable bound", color=GREY9, fontproperties=FP_MED, fontsize=8.3)
         _leg(ax, loc="lower right", handlelength=1.3, fontsize=6.0); style_ax(ax)
         vb = px.get("valid_bound_fraction", {})
-        ax.text(0.04, 0.95, "valid-bound rate:\n" +
-                "  ".join(f"{k} {100*vb.get(k,0):.0f}%" for k in ["gap", "primal", "dual"]),
+        ax.text(0.04, 0.96,
+                f"valid bound: gap {100*vb.get('gap',0):.0f}%,  "
+                f"Sinkhorn-div {100*vb.get('sinkdiv',0):.0f}%\n(primal/dual need $\\mathrm{{OT}}^\\star$; shown faint)",
                 transform=ax.transAxes, va="top", fontsize=5.6, color=GREY7, fontproperties=FP_REG)
     # --- panel (b): decision usefulness grouped bars ---
     ax = axes[1]
@@ -443,7 +454,7 @@ def real_dimension(real, outdir):
         ax.plot(d, sg, marker="s", color=C_LOWR, mfc="white", mec=C_LOWR, mew=1.3,
                 ms=5, lw=1.2, ls="--", label="single-cell (diffmap)")
     dg = np.logspace(0, np.log2(dmax), 50, base=2)
-    ax.plot(dg, 1 - 1 / dg, ":", color=GREY5, lw=1.2, label=r"$1-1/d$ (Prop. 2)")
+    ax.plot(dg, 1 - 1 / dg, ":", color=GREY5, lw=1.2, label=r"$1-1/d$ (Thm. 1)")
     ax.set_xscale("log", base=2); ax.set_xlabel(r"effective dimension $d$ (PCA / diffmap)", color=GREY9, fontproperties=FP_REG)
     ax.set_ylabel("sliced relative gap", color=GREY9, fontproperties=FP_REG); ax.set_ylim(-0.03, 1.05)
     ax.set_title("Dimensional deficit on real data", color=GREY9, fontproperties=FP_MED, fontsize=9)

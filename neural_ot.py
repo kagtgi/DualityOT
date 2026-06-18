@@ -55,10 +55,12 @@ if _HAS_TORCH:
 
 def _grad(net, y):
     """grad of a scalar-output ICNN wrt its input (batched), graph kept for the
-    outer (f) update."""
-    y = y.requires_grad_(True)
-    out = net(y).sum()
-    g = torch.autograd.grad(out, y, create_graph=True)[0]
+    outer (f) update. Wrapped in enable_grad so it also works when called from a
+    no_grad context (e.g. when evaluating the converged objective)."""
+    with torch.enable_grad():
+        y = y.requires_grad_(True)
+        out = net(y).sum()
+        g = torch.autograd.grad(out, y, create_graph=True)[0]
     return g
 
 
@@ -163,8 +165,7 @@ def neural_w2(X, Y, W2_ref=None, width=128, depth=2, iters=4000, k_inner=10,
             opt_f.step(); f.clamp()
             sch_f.step(); sch_g.step()
 
-        with torch.no_grad():
-            corr_val = float(V().item())
+        corr_val = float(V().item())   # V() needs autograd (grad of g); no no_grad here
         ex2 = float((Xt ** 2).sum(1).mean().item())
         ey2 = float((Yt ** 2).sum(1).mean().item())
         est_dual = ex2 + ey2 - 2.0 * corr_val       # maximin W2^2 (can be noisy)
