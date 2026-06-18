@@ -4,6 +4,9 @@ Produces results_real.json with, per dataset:
   frontier (error vs cost), composed certificate, dimension sweep,
 plus a large-N GPU scaling run and a MNIST->USPS gap-vs-accuracy study that
 shows the certified gap predicts a real downstream metric.
+
+Strengthened vs. first release: Nfr 1500->2000, dimension grid adds d=30,
+da_gap_vs_accuracy adds eps=0.005, and the scaling run goes up to n=32000.
 """
 import time
 import numpy as np
@@ -23,8 +26,8 @@ def _label_transfer_acc(P, ys, yt):
     return float(np.mean(pred == yt))
 
 
-def da_gap_vs_accuracy(Xs, ys, Xt, yt, N=1500, seed=0, use_gpu=True,
-                       eps_list=(0.5, 0.2, 0.1, 0.05, 0.02, 0.01), log=print):
+def da_gap_vs_accuracy(Xs, ys, Xt, yt, N=2000, seed=0, use_gpu=True,
+                       eps_list=(0.5, 0.2, 0.1, 0.05, 0.02, 0.01, 0.005), log=print):
     """For MNIST->USPS: sweep entropic eps, record the certified gap AND the
     downstream label-transfer accuracy of the same plan."""
     g = np.random.default_rng(seed)
@@ -45,14 +48,14 @@ def da_gap_vs_accuracy(Xs, ys, Xt, yt, N=1500, seed=0, use_gpu=True,
                                               return_plan=True)
         acc = _label_transfer_acc(Ps, ys, yt)
         rows.append(dict(method="sinkhorn", eps=er, gap=U - L, relgap=(U - L) / OTstar, acc=acc))
-        log(f"   eps={er:<5} relgap={(U-L)/OTstar:.3f} transfer-acc={acc:.3f}")
+        log(f"   eps={er:<6} relgap={(U-L)/OTstar:.3f} transfer-acc={acc:.3f}")
     return dict(OTstar=OTstar, ns=ns, nt=nt, rows=rows)
 
 
 def run_real(log=print, fast=False, use_gpu=True):
     out = {"gpu": otkit.gpu_info(), "datasets": {}}
-    Nfr = 600 if fast else 1500
-    dims = (2, 5, 10, 20) if fast else (2, 5, 10, 20, 50)
+    Nfr  = 600  if fast else 2000   # frontier sample size (strengthened 1500->2000)
+    dims = (2, 5, 10, 20) if fast else (2, 5, 10, 20, 30, 50)  # add d=30
 
     specs = [
         ("single_cell", lambda: D.load_singlecell(dim=50, log=log), True),
@@ -84,13 +87,15 @@ def run_real(log=print, fast=False, use_gpu=True):
         out["datasets"][name] = rec
 
     # ---- large-N GPU scaling on real MNIST (split into two halves) ----
-    log("\n=== REAL SCALING (GPU Sinkhorn on MNIST halves) ===")
+    log("\n=== REAL SCALING (GPU Sinkhorn on MNIST halves, to n=32000) ===")
     try:
         Xm, ym = D._torch_images("mnist", n_max=40000, seed=3)
         Z = D._pca(Xm, 50, 0)
         half = len(Z) // 2
-        Ns = (500, 1000, 2000, 4000) if fast else (500, 1000, 2000, 4000, 8000, 16000, 32000)
-        out["scaling"] = otkit.scaling(Z[:half], Z[half:], Ns=Ns, lp_max_n=4000, use_gpu=use_gpu)
+        Ns = (500, 1000, 2000, 4000) if fast \
+             else (500, 1000, 2000, 4000, 8000, 16000, 32000)
+        out["scaling"] = otkit.scaling(Z[:half], Z[half:], Ns=Ns,
+                                       lp_max_n=4000, use_gpu=use_gpu)
         out["scaling_meta"] = "MNIST halves (PCA-50), real images"
         log("  scaling done: Sinkhorn n=" + ",".join(str(r["n"]) for r in out["scaling"]["sinkhorn"]))
     except Exception as e:

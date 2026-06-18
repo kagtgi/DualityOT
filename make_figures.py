@@ -92,24 +92,55 @@ from matplotlib.patches import FancyArrowPatch, FancyBboxPatch
 
 
 def fig1_teaser(outdir):
-    fig, ax = plt.subplots(figsize=(7.0, 2.45)); ax.set_xlim(0, 10); ax.set_ylim(0, 3); ax.axis("off")
-    y0 = 1.52; L, S, U = 2.6, 5.35, 7.75
-    ax.add_patch(FancyBboxPatch((L, y0 - 0.2), U - L, 0.4, boxstyle="round,pad=0,rounding_size=0.08", fc=SURF_AMBER, ec="none", zorder=0))
-    ax.annotate("", xy=(9.7, y0), xytext=(0.3, y0), arrowprops=dict(arrowstyle="-|>", color=GREY7, lw=1.1))
-    ax.text(9.78, y0, "transport cost", va="center", ha="left", fontsize=8, color=GREY7, fontproperties=FP_REG)
-    for x, m, c, lab, sub in [(L, "^", C_SLICE, "$L$", "dual lower bound"), (S, "*", C_EXACT, r"$\mathrm{OT}^\star$", "true optimum"), (U, "s", C_LOWR, "$U$", "primal upper bound")]:
-        ax.plot([x], [y0], m, ms=13 if m == "*" else 9, mfc=(c if m == "*" else "white"), mec=c, mew=1.6, zorder=6)
-        ax.text(x, y0 + 0.32, lab, ha="center", va="bottom", fontsize=12.5, color=c)
-        ax.text(x, y0 + 0.82, sub, ha="center", va="bottom", fontsize=7.4, color=GREY7, fontproperties=FP_REG)
-    yb = y0 - 0.4; ax.plot([L, U], [yb, yb], color=C_GAP, lw=1.4)
-    for x in (L, U): ax.plot([x, x], [yb, yb + 0.1], color=C_GAP, lw=1.4)
-    ax.annotate(r"duality gap  $G = U - L$", xy=((L + U) / 2, yb), xytext=((L + U) / 2, yb - 0.4), ha="center", va="top", fontsize=11, color=C_GAPTX, fontproperties=FP_MED, arrowprops=dict(arrowstyle="-", color=C_GAP, lw=0.7))
-    ax.add_patch(FancyArrowPatch((L - 0.95, y0 + 0.02), (L + 0.5, y0 + 0.02), arrowstyle="-|>", mutation_scale=12, lw=1.3, color=C_SLICE))
-    ax.text(L - 1.0, y0 - 0.28, "relaxation\nraises $L$", ha="center", va="top", fontsize=7.6, color=C_SLICE, fontproperties=FP_MED)
-    ax.add_patch(FancyArrowPatch((U + 0.95, y0 + 0.02), (U - 0.5, y0 + 0.02), arrowstyle="-|>", mutation_scale=12, lw=1.3, color=C_LOWR))
-    ax.text(U + 1.0, y0 - 0.28, "restriction\nlowers $U$", ha="center", va="top", fontsize=7.6, color=C_LOWR, fontproperties=FP_MED)
-    ax.text(5.0, 2.92, "Every approximate-OT family controls one side of the Kantorovich duality gap", ha="center", va="top", fontsize=10.5, color=GREY9, fontproperties=FP_MED)
-    fig.tight_layout(pad=0.3); _save(fig, outdir, "fig1_teaser")
+    # Compact single-column version: tighter coordinate range, slightly smaller
+    # fonts. The saved PDF is designed to be included as a single-column \figure
+    # in the AAAI template (width ~3.33 in).
+    fig, ax = plt.subplots(figsize=(3.5, 2.9))
+    ax.set_xlim(0.2, 10.5); ax.set_ylim(0.55, 3.05); ax.axis("off")
+    y0 = 1.62; L, S, U = 2.6, 5.35, 7.75
+    ax.add_patch(FancyBboxPatch((L, y0 - 0.2), U - L, 0.4,
+                                boxstyle="round,pad=0,rounding_size=0.08",
+                                fc=SURF_AMBER, ec="none", zorder=0))
+    ax.annotate("", xy=(9.95, y0), xytext=(0.4, y0),
+                arrowprops=dict(arrowstyle="-|>", color=GREY7, lw=1.0))
+    ax.text(10.0, y0, "cost", va="center", ha="left", fontsize=7, color=GREY7,
+            fontproperties=FP_REG)
+    for x, m, c, lab, sub in [
+        (L, "^", C_SLICE,  "$L$",               "dual lower bound"),
+        (S, "*", C_EXACT,  r"$\mathrm{OT}^\star$", "true optimum"),
+        (U, "s", C_LOWR,   "$U$",               "primal upper bound"),
+    ]:
+        ax.plot([x], [y0], m, ms=11 if m == "*" else 8,
+                mfc=(c if m == "*" else "white"), mec=c, mew=1.5, zorder=6)
+        ax.text(x, y0 + 0.30, lab, ha="center", va="bottom",
+                fontsize=10.5, color=c)
+        ax.text(x, y0 + 0.72, sub, ha="center", va="bottom",
+                fontsize=6.5, color=GREY7, fontproperties=FP_REG)
+    yb = y0 - 0.38
+    ax.plot([L, U], [yb, yb], color=C_GAP, lw=1.3)
+    for x in (L, U): ax.plot([x, x], [yb, yb + 0.09], color=C_GAP, lw=1.3)
+    ax.annotate(r"duality gap  $G = U - L$",
+                xy=((L + U) / 2, yb), xytext=((L + U) / 2, yb - 0.38),
+                ha="center", va="top", fontsize=9.5, color=C_GAPTX,
+                fontproperties=FP_MED,
+                arrowprops=dict(arrowstyle="-", color=C_GAP, lw=0.7))
+    ax.add_patch(FancyArrowPatch(
+        (L - 0.85, y0 + 0.02), (L + 0.45, y0 + 0.02),
+        arrowstyle="-|>", mutation_scale=11, lw=1.2, color=C_SLICE))
+    ax.text(L - 0.9, y0 - 0.24, "relaxation\nraises $L$",
+            ha="center", va="top", fontsize=6.8, color=C_SLICE,
+            fontproperties=FP_MED)
+    ax.add_patch(FancyArrowPatch(
+        (U + 0.85, y0 + 0.02), (U - 0.45, y0 + 0.02),
+        arrowstyle="-|>", mutation_scale=11, lw=1.2, color=C_LOWR))
+    ax.text(U + 0.9, y0 - 0.24, "restriction\nlowers $U$",
+            ha="center", va="top", fontsize=6.8, color=C_LOWR,
+            fontproperties=FP_MED)
+    ax.text(5.35, 2.97,
+            "Every approximate-OT family controls one side of the Kantorovich duality gap",
+            ha="center", va="top", fontsize=8.5, color=GREY9,
+            fontproperties=FP_MED)
+    fig.tight_layout(pad=0.25); _save(fig, outdir, "fig1_teaser")
 
 
 def fig2_frontier(synth, outdir):
@@ -137,9 +168,16 @@ def fig3_diagnostics(synth, outdir):
     mk(ax, ds, sg, "sliced", label="sliced gap", ms=5.0); ax.plot(ds, st, "o:", color=GREY7, mfc="white", mec=GREY7, mew=1.2, ms=4.2, lw=1.1, label="stat. gap")
     ax.set_xscale("log", base=2); ax.set_xlabel(r"dimension $d$", color=GREY9, fontproperties=FP_REG); ax.set_ylabel("relative gap", color=GREY9, fontproperties=FP_REG); ax.set_ylim(-0.03, 1.05)
     ax.set_title("(b) dimension widens the gap", color=GREY9, fontproperties=FP_MED, fontsize=8.7); _leg(ax, loc="lower right", handlelength=1.7, fontsize=6.5); style_ax(ax)
-    sc = synth["scaling"]; ax = axes[2]; fmap = {"exact": "exact", "sinkhorn": "entropic", "lowrank": "lowrank", "sliced": "sliced"}; lmap = {"exact": "exact LP", "sinkhorn": "Sinkhorn", "lowrank": "low-rank", "sliced": "sliced"}
-    for k in ["exact", "sinkhorn", "lowrank", "sliced"]:
-        v = sc[k]; ns = np.array([r["n"] for r in v]); ts = np.array([r["time"] for r in v]); mk(ax, ns, ts, fmap[k], label=lmap[k], ms=4.6)
+    sc = synth["scaling"]; ax = axes[2]
+    fmap = {"exact": "exact", "sinkhorn": "entropic", "lowrank": "lowrank",
+            "sliced": "sliced", "minibatch": "minibatch"}
+    lmap = {"exact": "exact LP", "sinkhorn": "Sinkhorn", "lowrank": "low-rank",
+            "sliced": "sliced", "minibatch": "minibatch"}
+    for k in ["exact", "sinkhorn", "lowrank", "minibatch", "sliced"]:
+        v = sc.get(k, [])
+        if not v: continue
+        ns = np.array([r["n"] for r in v]); ts = np.array([r["time"] for r in v])
+        mk(ax, ns, ts, fmap[k], label=lmap[k], ms=4.6)
     ax.set_xscale("log"); ax.set_yscale("log"); ax.set_xlabel(r"sample size $n$", color=GREY9, fontproperties=FP_REG); ax.set_ylabel("time (s)", color=GREY9, fontproperties=FP_REG)
     ax.set_title("(c) cost of certifiability", color=GREY9, fontproperties=FP_MED, fontsize=8.7); _leg(ax, loc="upper left", handlelength=1.7, fontsize=6.5); style_ax(ax)
     fig.tight_layout(pad=0.5); _save(fig, outdir, "fig3_diagnostics")
@@ -217,7 +255,11 @@ def real_gap_accuracy(real, outdir):
         _leg(ax, loc="lower left", handlelength=1.6, fontsize=6.4); style_ax(ax)
     if has_sc:
         ax = axes[0][k]
-        sc = real["scaling"]; fmap = {"exact": "exact", "sinkhorn": "entropic", "lowrank": "lowrank", "sliced": "sliced"}; lmap = {"exact": "exact LP", "sinkhorn": "Sinkhorn (GPU)", "lowrank": "low-rank", "sliced": "sliced"}
+        sc = real["scaling"]
+        fmap = {"exact": "exact", "sinkhorn": "entropic", "lowrank": "lowrank",
+                "sliced": "sliced", "minibatch": "minibatch"}
+        lmap = {"exact": "exact LP", "sinkhorn": "Sinkhorn (GPU)", "lowrank": "low-rank",
+                "sliced": "sliced", "minibatch": "minibatch"}
         for key in ["exact", "sinkhorn", "lowrank", "sliced"]:
             v = sc.get(key, [])
             if len(v) < 1: continue
