@@ -587,6 +587,109 @@ def color_transfer(real, outdir):
     fig.tight_layout(pad=0.3); _save(fig, outdir, "color_transfer")
 
 
+def fig_proxy_scatter(synth, outdir):
+    """4-panel full proxy-validity scatter (appendix).
+    Each panel shows one proxy vs the true two-sided certification error with the
+    identity line; the red-shaded region below it marks 'not a valid bound'.
+    (a) certified gap: computable AND always above the line.
+    (b) Sinkhorn divergence: computable but frequently below the line.
+    (c) primal excess / (d) dual deficit: valid bounds but require OT*."""
+    px = synth.get("proxy")
+    if not px or not px.get("rows"):
+        return
+    rows = px["rows"]
+    ce = np.array([r["cert_error"] for r in rows])
+    eps_log = np.log10([r["eps"] for r in rows])
+    vb = px.get("valid_bound_fraction", {})
+    sp = px.get("spearman", {})
+    panel_specs = [
+        ("gap",     r"certified gap $G/\mathrm{OT}^\star$",
+         C_GAP,   "D", r"(computable — no $\mathrm{OT}^\star$ needed)"),
+        ("sinkdiv", r"Sinkhorn divergence $S_\varepsilon/\mathrm{OT}^\star$",
+         C_MINI,  "o", r"(computable — no $\mathrm{OT}^\star$ needed)"),
+        ("primal",  r"primal excess $(U\!-\!\mathrm{OT}^\star)/\mathrm{OT}^\star$",
+         C_LOWR,  "s", r"(requires $\mathrm{OT}^\star$)"),
+        ("dual",    r"dual deficit $(\mathrm{OT}^\star\!-\!L)/\mathrm{OT}^\star$",
+         C_SLICE, "^", r"(requires $\mathrm{OT}^\star$)"),
+    ]
+    fig, axes = plt.subplots(2, 2, figsize=(6.8, 5.8))
+    axes = axes.ravel()
+    tags = ["(a)", "(b)", "(c)", "(d)"]
+    for i, (key, ylabel, col, mk_, note) in enumerate(panel_specs):
+        ax = axes[i]
+        vals = np.array([r[key] for r in rows])
+        lim = max(float(ce.max()), float(vals.max())) * 1.18
+        lo = -lim * 0.03
+        ax.plot([lo, lim], [lo, lim], "-", color=GREY7, lw=1.0, zorder=1)
+        ax.fill_between([lo, lim], [lo, lo], [lo, lim],
+                        color="#FCE8E6", alpha=0.50, zorder=0)
+        ax.scatter(ce, vals, c=eps_log, cmap="Blues_r", s=22, marker=mk_,
+                   edgecolor=col, linewidth=0.7, alpha=0.85, zorder=3)
+        ax.set_xlim(lo, lim); ax.set_ylim(lo, lim)
+        pct = 100.0 * vb.get(key, float("nan"))
+        rho = sp.get(key, float("nan"))
+        ax.set_title(
+            f"{tags[i]}  valid bound: {pct:.0f}%   Spearman: {rho:+.2f}\n{note}",
+            color=GREY9, fontproperties=FP_REG, fontsize=6.8, linespacing=1.35)
+        ax.set_xlabel("two-sided error", color=GREY9,
+                      fontproperties=FP_REG, fontsize=6.5)
+        ax.set_ylabel(ylabel, color=col, fontproperties=FP_MED, fontsize=6.8)
+        style_ax(ax)
+    fig.tight_layout(pad=0.9)
+    _save(fig, outdir, "fig_proxy_scatter")
+
+
+def color_transfer_methods(real, outdir):
+    """4-panel: source | exact LP (G=0) | Sinkhorn tight | Sinkhorn loose.
+    Each panel's border and title color matches its method; relgap is annotated.
+    This makes the gap–fidelity link directly visible: tight gap = faithful colors,
+    loose gap = washed-out / wrong hues."""
+    imgs = real.get("_color_imgs")
+    if imgs is None:
+        return
+    import ot
+    from skimage import color as skcolor
+    from scipy.spatial import cKDTree
+    import otkit as K
+    src = np.asarray(imgs["src_sample"], float)
+    tgt = np.asarray(imgs["tgt_sample"], float)
+    n = len(src); a = np.ones(n) / n; b = np.ones(n) / n
+    M = ot.dist(src, tgt, metric="sqeuclidean")
+    full = np.asarray(imgs["src_lab_full"])
+    tree = cKDTree(src); _, idx = tree.query(full, k=1)
+    src_img = np.asarray(imgs["src_img"])
+
+    def bary(P):
+        P = np.asarray(P, float)
+        mapped = (P @ tgt) / np.maximum(P.sum(1, keepdims=True), 1e-12)
+        return np.clip(skcolor.lab2rgb(mapped[idx].reshape(src_img.shape)), 0, 1)
+
+    P_ex = ot.emd(a, b, M)
+    OTstar = float(np.sum(P_ex * M))
+    panels = [(src_img, "source\n(original)", GREY7)]
+    panels.append((bary(P_ex), "Exact LP\n$G=0$   (relgap = 0.00)", C_EXACT))
+    for eps_rel, lbl in [(0.02, r"$\varepsilon\!=\!0.02$  (tight)"),
+                          (0.50, r"$\varepsilon\!=\!0.50$  (loose)")]:
+        _, U, L, _, Ps = K.sinkhorn_gap(M, a, b, eps_rel, use_gpu=False,
+                                          numItermax=5000, stopThr=1e-7,
+                                          return_plan=True)
+        rg = (U - L) / max(OTstar, 1e-12)
+        col = C_SINK if rg < 0.3 else C_SLICE
+        panels.append((bary(Ps),
+                        f"Sinkhorn  {lbl}\nrelgap = {rg:.2f}", col))
+
+    fig, axes = plt.subplots(1, 4, figsize=(9.4, 2.8),
+                              gridspec_kw={"wspace": 0.06})
+    for ax, (img, ttl, col) in zip(axes, panels):
+        ax.imshow(img); ax.axis("off")
+        ax.set_title(ttl, color=col, fontproperties=FP_MED, fontsize=7.4,
+                     linespacing=1.25, pad=5)
+        for sp in ax.spines.values():
+            sp.set_visible(True); sp.set_edgecolor(col); sp.set_linewidth(2.2)
+    fig.tight_layout(pad=0.2)
+    _save(fig, outdir, "color_transfer_methods")
+
+
 # =================================================== driver
 def generate_all(synth, real, outdir, font_dir="."):
     _setup(font_dir); os.makedirs(outdir, exist_ok=True); made = []
@@ -601,8 +704,11 @@ def generate_all(synth, real, outdir, font_dir="."):
         except Exception as e: print(nm, "failed:", e)
     try: fig_gap_selection(synth, real, outdir); made.append("fig_gap_selection")
     except Exception as e: print("fig_gap_selection failed:", e)
+    try: fig_proxy_scatter(synth, outdir); made.append("fig_proxy_scatter")
+    except Exception as e: print("fig_proxy_scatter failed:", e)
     for fn, nm in [(real_frontier, "real_frontier"), (real_dimension, "real_dimension"),
                    (real_gap_accuracy, "real_gap_accuracy"), (color_transfer, "color_transfer"),
+                   (color_transfer_methods, "color_transfer_methods"),
                    (fig_singlecell_transport, "fig_singlecell_transport")]:
         try: fn(real, outdir); made.append(nm)
         except Exception as e: print(nm, "failed:", e)
