@@ -258,7 +258,7 @@ def _aniso_deficit(d=16, n=3000, n_seeds=5, fast=False):
     return dict(rows=rows, d=d, n=n)
 
 
-def _proxy_study(d=5, n=2000, n_seeds=3, use_gpu=True, fast=False):
+def _proxy_study(d=5, n=2000, n_seeds=5, use_gpu=True, fast=False):
     """E3: on synthetic ground truth, contrast the certified gap with alternative
     fidelity proxies (primal-only, dual-only, Sinkhorn divergence, entropic
     objective). Records, per eps, each proxy and the TRUE relative error, plus

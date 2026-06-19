@@ -144,6 +144,37 @@ def decision_study(Xs, ys, Xt, yt, N=1200, seed=0, use_gpu=True,
     return dict(rows=rows, picks=picks, tau=tau, OTstar=OTstar, ns=ns, nt=nt)
 
 
+def decision_study_multiseed(Xs, ys, Xt, yt, N=1200, seeds=(0, 1, 2, 3, 4),
+                              use_gpu=True,
+                              eps_list=(0.5, 0.2, 0.1, 0.05, 0.02, 0.01, 0.005),
+                              tau=0.3, log=print):
+    """Multi-seed wrapper for decision_study: reports mean±std accuracy per selection
+    rule across seeds, so the decision-usefulness comparison has variance estimates."""
+    rule_keys = ("gap_tol", "gap_knee", "fixed", "obj_elbow", "sinkdiv", "oracle_best")
+    acc_pool = {k: [] for k in rule_keys}
+    eps_pool = {k: [] for k in rule_keys}
+    for s in seeds:
+        try:
+            ds = decision_study(Xs, ys, Xt, yt, N=N, seed=s, use_gpu=use_gpu,
+                                eps_list=eps_list, tau=tau, log=(lambda *a: None))
+            for k in rule_keys:
+                if k in ds["picks"]:
+                    acc_pool[k].append(ds["picks"][k]["acc"])
+                    eps_pool[k].append(ds["picks"][k]["eps"])
+        except Exception as e:
+            log(f"  [decision seed {s} skip] {e}")
+    summary = {}
+    for k in rule_keys:
+        if acc_pool[k]:
+            a = np.asarray(acc_pool[k])
+            summary[k] = dict(acc=float(a.mean()), acc_std=float(a.std()),
+                              eps=float(np.mean(eps_pool[k])))
+    log("  decision (multi-seed): " + "  ".join(
+        f"{k}={summary[k]['acc']:.3f}±{summary[k]['acc_std']:.3f}"
+        for k in rule_keys if k in summary))
+    return dict(summary=summary, n_seeds=len(seeds), tau=tau)
+
+
 def run_real(log=print, fast=False, use_gpu=True, n_seeds=5):
     out = {"gpu": otkit.gpu_info(), "datasets": {}}
     Nfr  = 600  if fast else 2000   # frontier sample size (strengthened 1500->2000)
@@ -256,6 +287,7 @@ def run_real(log=print, fast=False, use_gpu=True, n_seeds=5):
         log(f"  [single-cell da skip] {e}")
 
     # ---- E2: decision usefulness (gap-selected eps vs unsupervised heuristics) ----
+    # Single-seed run (for the sweep rows / figure) + multi-seed summary (for the table).
     log("\n=== REAL DECISION USEFULNESS: gap-selected eps vs heuristics ===")
     out["decision"] = {}
     for nm, dd in [("mnist_usps", da), ("single_cell", sc_da)]:
@@ -271,6 +303,20 @@ def run_real(log=print, fast=False, use_gpu=True, n_seeds=5):
                 f"sinkdiv={p['sinkdiv']['acc']:.3f} | oracle={p['oracle_best']['acc']:.3f}")
         except Exception as e:
             log(f"  [decision {nm} skip] {e}")
+    # Multi-seed decision study: variance estimates for the comparison table.
+    out["decision_multiseed"] = {}
+    log(f"\n=== REAL DECISION USEFULNESS (multi-seed, {n_seeds} seeds) ===")
+    for nm, dd in [("mnist_usps", da), ("single_cell", sc_da)]:
+        if dd is None:
+            continue
+        try:
+            ms = decision_study_multiseed(
+                dd["Xs"], dd["ys"], dd["Xt"], dd["yt"],
+                N=min(Nfr, 1200), seeds=tuple(range(n_seeds)),
+                use_gpu=use_gpu, log=log)
+            out["decision_multiseed"][nm] = ms
+        except Exception as e:
+            log(f"  [decision_multiseed {nm} skip] {e}")
 
     # ---- E1: negative results (where the gap is necessary but not sufficient) ----
     # Quantify over-sharpening: the smallest-gap operating point is NOT the best
